@@ -28,7 +28,7 @@ import util.ErrorMessageUtil;
 /**
  * Controller cho lich su don hang, chi tiet va invoice.
  */
-@WebServlet({"/orders", "/orders/detail"})
+@WebServlet({"/orders", "/orders/detail", "/customer/orders"})
 public class OrderServlet extends HttpServlet {
 
     private static final Logger log = Logger.getLogger(OrderServlet.class.getName());
