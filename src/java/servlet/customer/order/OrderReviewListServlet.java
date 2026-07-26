@@ -41,7 +41,7 @@ public class OrderReviewListServlet extends HttpServlet {
 
         String orderIdStr = req.getParameter("orderId");
         if (orderIdStr == null || orderIdStr.isEmpty()) {
-            resp.sendRedirect(req.getContextPath() + "/customer/orders");
+            resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
             return;
         }
 
@@ -55,7 +55,7 @@ public class OrderReviewListServlet extends HttpServlet {
             Order order = orderList.get(0);
             if (!"DELIVERED".equals(order.getStatus())) {
                 SessionUtil.setFlashMessage(req.getSession(), "Chỉ có thể đánh giá đơn hàng đã giao thành công.", "warning");
-                resp.sendRedirect(req.getContextPath() + "/customer/orders");
+                resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
                 return;
             }
 
