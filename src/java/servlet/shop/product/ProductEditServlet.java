@@ -346,8 +346,17 @@ public class ProductEditServlet extends HttpServlet {
                 }
             }
 
+            if (originCountry == null || originCountry.trim().isEmpty()) {
+                errors.add("Quốc gia là bắt buộc.");
+            }
+            if (originRegion == null || originRegion.trim().isEmpty()) {
+                errors.add("Vùng sản xuất là bắt buộc.");
+            }
+
             LocalDate harvestDate = null;
-            if (harvestDateStr != null && !harvestDateStr.trim().isEmpty()) {
+            if (harvestDateStr == null || harvestDateStr.trim().isEmpty()) {
+                errors.add("Ngày thu hoạch là bắt buộc.");
+            } else {
                 try {
                     harvestDate = LocalDate.parse(harvestDateStr);
                     if (harvestDate.isAfter(LocalDate.now())) {
