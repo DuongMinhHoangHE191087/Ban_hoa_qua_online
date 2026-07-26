@@ -167,12 +167,14 @@ Nền tảng MetaFruit phục vụ 5 nhóm đối tượng tương tác với qu
 
 ### 5. Giao Hàng & Kết Toán Ví Doanh Thu Tự Động (Delivery & Settlement)
 *   **Giao Vận Cho Shipper (Delivery Processing)**:
-    - Sau khi Chủ shop đóng gói và nhấn "Duyệt Đơn" -> Đơn hàng chuyển sang trạng thái `READY_FOR_PICKUP`.
-    - Shipper truy cập `/delivery/dashboard` thấy danh sách đơn trong khu vực -> Bấm "Nhận Giao" -> Cập nhật trạng thái `SHIPPING` -> Cập nhật `DELIVERED` (kèm thu tiền COD nếu có).
-*   **Tự Động Kết Toán Doanh Thu Cho Chủ Shop (Daily Settlement Batch Job)**:
-    - Lớp `SettlementScheduler` khởi chạy tự động lúc `00:00` hàng ngày.
-    - Quét tất cả các đơn hàng có trạng thái `DELIVERED` đã qua **7 ngày** (hết thời hạn đổi trả).
-    - Tính toán tiền hàng trừ đi phí sàn -> Tự động chuyển doanh thu net vào Ví của Chủ shop (`ShopSettlement`) và cập nhật trạng thái đơn thành `SETTLED`.
+    - Sau khi Chủ shop "Duyệt Đơn" (`APPROVED`) rồi "Bàn Giao" -> Đơn chuyển `DISPATCHED`, hệ thống tạo `delivery_trips` + `deliveries` (trạng thái `ASSIGNED`).
+    - Shipper truy cập `/delivery/dashboard` -> "Nhận Giao" (CLAIM, khóa nguyên tử) -> `PICKED_UP` -> `IN_TRANSIT` -> `DELIVERED` (bắt buộc ảnh bằng chứng, kèm thu COD nếu có) hoặc `FAILED` (bắt buộc lý do, tự hoàn kho).
+    - Khi đơn bị hủy lúc đang giao: `deliveries`/`delivery_trips` được đồng bộ sang `CANCELLED` và vẫn hiển thị dạng "Đã hủy" trên dashboard để shipper/đối soát tra cứu (không cho thao tác tiếp).
+*   **Tự Động Kết Toán Doanh Thu Cho Chủ Shop (Auto Settlement)**:
+    - Lớp `AutoSettlementListener` (ServletContextListener) chạy **định kỳ mỗi giờ** (không phải 00:00 hàng ngày).
+    - Quét các đơn con `DELIVERED` đã qua cửa sổ đóng băng `settlement_freeze_hours` **và** đã hết hạn đổi trả (`return_request_max_hours`) — hệ thống chờ `max(freeze, return_window)` để không kết toán trước khi khách hết quyền đổi trả.
+    - Tính `net = tiền hàng − phí sàn − hoàn trả` -> ghi vào `shop_settlements` (trạng thái `PENDING`). Chống kết toán trùng bằng ràng buộc UNIQUE `shop_settlement_orders.order_id` (đơn KHÔNG có trạng thái `SETTLED`).
+    - Chủ shop `confirm` bảng kê -> Admin `markPaid` để chốt dòng tiền vào ví.
 
 ---
 

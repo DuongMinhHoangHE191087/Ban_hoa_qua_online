@@ -67,46 +67,74 @@ public class CartDAO extends BaseDAO {
         return addItem(cartId, variantId, quantity, null);
     }
 
+    /**
+     * Thêm sản phẩm vào giỏ (cộng dồn nếu đã có dòng cùng variant + packaging).
+     *
+     * <p>SELECT + INSERT/UPDATE + touch được bọc trong MỘT transaction để chống TOCTOU:
+     * gợi ý khóa {@code WITH (UPDLOCK, HOLDLOCK)} tạo key-range lock theo
+     * (cart_id, variant_id, packaging_id), nên hai request thêm cùng lúc sẽ tuần tự hóa —
+     * tránh tạo dòng trùng hoặc mất cập nhật số lượng.</p>
+     */
     public Cart addItem(int cartId, int variantId, int quantity, Integer packagingId) throws SQLException {
         String selectSql = packagingId != null
-                ? "SELECT cart_item_id, quantity FROM cart_items WHERE cart_id = ? AND variant_id = ? AND packaging_id = ?"
-                : "SELECT cart_item_id, quantity FROM cart_items WHERE cart_id = ? AND variant_id = ? AND packaging_id IS NULL";
-        int existingCartItemId = -1;
-        int existingQuantity = 0;
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(selectSql)) {
-            ps.setInt(1, cartId);
-            ps.setInt(2, variantId);
-            if (packagingId != null) {
-                ps.setInt(3, packagingId);
-            }
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    existingCartItemId = rs.getInt("cart_item_id");
-                    existingQuantity = rs.getInt("quantity");
-                }
-            }
-        }
+                ? "SELECT cart_item_id, quantity FROM cart_items WITH (UPDLOCK, HOLDLOCK) WHERE cart_id = ? AND variant_id = ? AND packaging_id = ?"
+                : "SELECT cart_item_id, quantity FROM cart_items WITH (UPDLOCK, HOLDLOCK) WHERE cart_id = ? AND variant_id = ? AND packaging_id IS NULL";
+        String insertSql = "INSERT INTO cart_items (cart_id, variant_id, quantity, packaging_id, added_at) VALUES (?, ?, ?, ?, GETDATE())";
+        String updateSql = "UPDATE cart_items SET quantity = ? WHERE cart_item_id = ?";
+        String touchSql = "UPDATE cart SET updated_at = GETDATE() WHERE cart_id = ?";
 
-        if (existingCartItemId != -1) {
-            updateItemQuantity(existingCartItemId, existingQuantity + quantity);
-        } else {
-            String insertSql = "INSERT INTO cart_items (cart_id, variant_id, quantity, packaging_id, added_at) VALUES (?, ?, ?, ?, GETDATE())";
-            try (Connection conn = getConnection();
-                 PreparedStatement ps = conn.prepareStatement(insertSql)) {
-                ps.setInt(1, cartId);
-                ps.setInt(2, variantId);
-                ps.setInt(3, quantity);
-                if (packagingId != null) {
-                    ps.setInt(4, packagingId);
-                } else {
-                    ps.setNull(4, Types.INTEGER);
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                int existingCartItemId = -1;
+                int existingQuantity = 0;
+                try (PreparedStatement ps = conn.prepareStatement(selectSql)) {
+                    ps.setInt(1, cartId);
+                    ps.setInt(2, variantId);
+                    if (packagingId != null) {
+                        ps.setInt(3, packagingId);
+                    }
+                    try (ResultSet rs = ps.executeQuery()) {
+                        if (rs.next()) {
+                            existingCartItemId = rs.getInt("cart_item_id");
+                            existingQuantity = rs.getInt("quantity");
+                        }
+                    }
                 }
-                ps.executeUpdate();
+
+                if (existingCartItemId != -1) {
+                    try (PreparedStatement ps = conn.prepareStatement(updateSql)) {
+                        ps.setInt(1, existingQuantity + quantity);
+                        ps.setInt(2, existingCartItemId);
+                        ps.executeUpdate();
+                    }
+                } else {
+                    try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                        ps.setInt(1, cartId);
+                        ps.setInt(2, variantId);
+                        ps.setInt(3, quantity);
+                        if (packagingId != null) {
+                            ps.setInt(4, packagingId);
+                        } else {
+                            ps.setNull(4, Types.INTEGER);
+                        }
+                        ps.executeUpdate();
+                    }
+                }
+
+                try (PreparedStatement ps = conn.prepareStatement(touchSql)) {
+                    ps.setInt(1, cartId);
+                    ps.executeUpdate();
+                }
+
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
             }
         }
-        
-        touchCart(cartId);
         return findCartById(cartId);
     }
 

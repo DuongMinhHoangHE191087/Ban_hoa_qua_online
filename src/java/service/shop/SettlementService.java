@@ -24,8 +24,11 @@ public class SettlementService {
     public int runAutoSettlement() throws SQLException {
         synchronized (SettlementService.class) {
             // PAY-03: use hours for freeze window so sub-day release is possible.
-            int freezeHours = configDAO.getInt("settlement_freeze_hours", 12);
-            return settlementDAO.runAutoSettlementByHours(freezeHours);
+            int freezeHours = configDAO.getInt("settlement_freeze_hours", 24);
+            // D3: không kết toán trước khi khách hết hạn đổi trả — chờ tối thiểu bằng return window.
+            int returnMaxHours = configDAO.getInt("return_request_max_hours", 24);
+            int effectiveFreezeHours = Math.max(freezeHours, returnMaxHours);
+            return settlementDAO.runAutoSettlementByHours(effectiveFreezeHours);
         }
     }
 

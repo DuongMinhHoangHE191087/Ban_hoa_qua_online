@@ -68,6 +68,9 @@ tailwind.config = {
         <a href="${pageContext.request.contextPath}/delivery/dashboard?status=FAILED" class="tab-pill ${filterStatus == 'FAILED' ? 'bg-red-600 text-white shadow-sm' : 'text-txt-2 hover:bg-red-50 hover:text-red-600'}">
             <i class="fa-solid fa-circle-xmark"></i> Thất bại
         </a>
+        <a href="${pageContext.request.contextPath}/delivery/dashboard?status=CANCELLED" class="tab-pill ${filterStatus == 'CANCELLED' ? 'bg-slate-600 text-white shadow-sm' : 'text-txt-2 hover:bg-slate-100 hover:text-slate-600'}">
+            <i class="fa-solid fa-ban"></i> Đã hủy
+        </a>
     </div>
 
     <%-- Empty State --%>
@@ -128,6 +131,11 @@ tailwind.config = {
                                 <i class="fa-solid fa-circle-xmark text-[9px]"></i> Thất bại
                             </span>
                         </c:when>
+                        <c:when test="${dto.deliveryStatus == 'CANCELLED'}">
+                            <span class="status-badge bg-slate-100 text-slate-600 border border-slate-300">
+                                <i class="fa-solid fa-ban text-[9px]"></i> Đã hủy
+                            </span>
+                        </c:when>
                     </c:choose>
                 </div>
 
@@ -178,7 +186,7 @@ tailwind.config = {
                                     <span class="text-txt-3 italic text-xs">Chưa thiết lập</span>
                                 </c:otherwise>
                             </c:choose>
-                            <c:if test="${not empty dto.delivery.staffId && dto.deliveryStatus != 'DELIVERED' && dto.deliveryStatus != 'FAILED'}">
+                            <c:if test="${not empty dto.delivery.staffId && dto.deliveryStatus != 'DELIVERED' && dto.deliveryStatus != 'FAILED' && dto.deliveryStatus != 'CANCELLED'}">
                                 <button type="button" onclick="openEstimateModal('${dto.deliveryId}')"
                                     class="ml-2 text-primary hover:text-primary-hover underline text-[11px] font-bold cursor-pointer bg-none border-none">Cập nhật</button>
                             </c:if>
@@ -197,6 +205,11 @@ tailwind.config = {
                 <%-- Card Footer - Action Buttons --%>
                 <div class="px-5 pb-5 mt-auto">
                     <c:choose>
+                        <c:when test="${dto.deliveryStatus == 'CANCELLED'}">
+                            <div class="w-full bg-slate-50 text-slate-500 font-bold py-3 rounded-2xl text-center text-sm border border-slate-200">
+                                <i class="fa-solid fa-ban mr-1"></i> Đơn đã hủy — chỉ xem để đối soát
+                            </div>
+                        </c:when>
                         <c:when test="${empty dto.delivery.staffId}">
                             <button onclick="claimOrder('${dto.deliveryId}')"
                                 class="w-full bg-[#0369A1] hover:bg-[#0284C7] text-white font-bold py-3 rounded-2xl transition-all shadow-md active:scale-95 cursor-pointer border-0 flex items-center justify-center gap-2">

@@ -17,6 +17,9 @@
 /artifacts/
 /memory/
 /scratch/
+/.impeccable
+/.playwright-cli
+/.understand-anything
 /tools/
 /cloudflare/
 
@@ -59,6 +62,10 @@
 # Compiled class files & Java test entry points
 *.class
 /TestDB.java
+
+
+# Compiled class files
+*.class
 
 # Log files & Build outputs
 *.log
