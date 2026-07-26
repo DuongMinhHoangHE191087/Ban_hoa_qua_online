@@ -9,7 +9,7 @@
 <div class="container my-5">
     <div class="d-flex justify-content-between align-items-center mb-4">
         <h2>Đánh giá sản phẩm - Đơn #${order.orderId}</h2>
-        <a href="${pageContext.request.contextPath}/customer/orders" class="btn btn-outline-secondary">Quay lại lịch sử</a>
+        <a href="${pageContext.request.contextPath}/profile?tab=orders" class="btn btn-outline-secondary">Quay lại lịch sử</a>
     </div>
 
 

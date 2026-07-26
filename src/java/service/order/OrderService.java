@@ -279,7 +279,7 @@ public class OrderService {
                                         + (AppConfig.PAYMENT_CK.equals(paymentMethod)
                                         ? "Tiền đã được hoàn trả tự động vào tài khoản của bạn. " : "")
                                         + "Vui lòng đặt lại đơn hàng khác.",
-                                "/customer/orders");
+                                "/profile/order-detail?orderId=" + orderId);
                     } catch (Exception e) {
                         LoggerUtil.warn(log, "Failed to notify customer of auto cancellation for orderId=" + orderId, e);
                     }
