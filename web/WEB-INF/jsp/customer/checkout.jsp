@@ -46,10 +46,9 @@
             </div>
 
             <%-- CRITICAL SCRIPT: RESET GIỎ HÀNG LOCAL STORAGE CHỌN LỌC --%>
-            <%-- [FIX] Đọc purgedVariantIds từ session attribute (không lộ trên URL) --%>
-            <c:set var="purgedIds" value="${not empty sessionScope._purgedCartItemIds ? sessionScope._purgedCartItemIds : sessionScope._purgedVariantIds}"/>
+            <%-- Đọc danh sách cart_item_id đã mua từ session attribute (không lộ trên URL) --%>
+            <c:set var="purgedIds" value="${sessionScope._purgedCartItemIds}"/>
             <c:remove var="_purgedCartItemIds" scope="session"/>
-            <c:remove var="_purgedVariantIds" scope="session"/>
             <script>
                 document.addEventListener('DOMContentLoaded', () => {
                     const purgedIdsRaw = '<c:out value="${purgedIds}" default=""/>';

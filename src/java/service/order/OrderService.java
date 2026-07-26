@@ -38,6 +38,8 @@ public class OrderService {
 
     private final OrderDAO orderDAO = new OrderDAO();
     private final PaymentDAO paymentDAO = new PaymentDAO();
+    private final dao.order.DeliveryDAO deliveryDAO = new dao.order.DeliveryDAO();
+    private final dao.order.DeliveryTripDAO deliveryTripDAO = new dao.order.DeliveryTripDAO();
     private final NotificationService notificationService = new NotificationService();
     private final EmailService emailService = new EmailService();
     private final InventoryService inventoryService = new InventoryService();
@@ -380,6 +382,23 @@ public class OrderService {
                 }
 
                 orderDAO.cancel(conn, orderId, cancelledBy, reason);
+
+                // D2: đồng bộ delivery/trip khi hủy đơn đang giao — đặt 'CANCELLED' (KHÔNG dùng 'FAILED'
+                // để không làm sai chỉ số countRecentFailedDeliveries ảnh hưởng điều kiện COD của khách).
+                // Vẫn giữ dòng deliveries để shipper tra cứu (dashboard hiển thị "Đã hủy", ẩn thao tác).
+                model.entity.order.Delivery activeDelivery = deliveryDAO.findByOrderId(orderId);
+                if (activeDelivery != null) {
+                    String ds = activeDelivery.getStatus();
+                    boolean terminal = "DELIVERED".equals(ds) || "FAILED".equals(ds) || "CANCELLED".equals(ds);
+                    if (!terminal) {
+                        deliveryDAO.updateStatusAndProof(conn, activeDelivery.getDeliveryId(),
+                                "CANCELLED", "Đơn hàng đã bị hủy: " + reason, null);
+                        if (activeDelivery.getDeliveryTripId() != null) {
+                            deliveryTripDAO.updateStatus(conn, activeDelivery.getDeliveryTripId(), "CANCELLED");
+                        }
+                    }
+                }
+
                 List<OrderItem> items = orderDAO.findItemsByOrderId(conn, orderId);
                 for (OrderItem item : items) {
                     if (item.getVariantId() != null) {

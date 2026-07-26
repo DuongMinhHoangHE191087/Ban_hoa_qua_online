@@ -32,7 +32,7 @@ import java.security.SecureRandom;
  *   1. CK: initPayment() → tạo payment_transactions
  *   2. Customer bấm "Tôi đã thanh toán" → confirmManualPayment()
  *   3. Admin xác nhận → adminApprovePayment()
- *   4. Tương lai: SePay webhook → processWebhook()
+ *   4. SePay webhook (tự động, idempotent) → processWebhook()
  *
  * @author fruitmkt-team
  */

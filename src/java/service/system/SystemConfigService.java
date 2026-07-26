@@ -254,7 +254,8 @@ public class SystemConfigService {
     }
 
     private boolean isGeminiKey(String key) {
-        return AppConfig.CONFIG_GEMINI_API_KEY.equalsIgnoreCase(key);
+        return AppConfig.CONFIG_GEMINI_API_KEY.equalsIgnoreCase(key)
+                || AppConfig.CONFIG_GEMINI_MODEL.equalsIgnoreCase(key);
     }
 
     private void notifyShopsOfFeeChange(String key, String oldValue, String newValue, LocalDateTime effectiveDate, String reason) {

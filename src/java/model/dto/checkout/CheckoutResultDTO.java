@@ -34,14 +34,6 @@ public class CheckoutResultDTO {
         this.purgedCartItemIds = purgedCartItemIds;
     }
 
-    public String getPurgedVariantIds() {
-        return purgedCartItemIds;
-    }
-
-    public void setPurgedVariantIds(String purgedVariantIds) {
-        this.purgedCartItemIds = purgedVariantIds;
-    }
-
     public String getSuccessMessage() {
         return successMessage;
     }

@@ -155,26 +155,10 @@ public class RegisterServlet extends HttpServlet {
                     throw new Exception("Vui lòng chọn ít nhất một danh mục sản phẩm.");
                 }
 
-                List<String> uploadedDraftPaths = ShopDocDraftUtil.uploadDraftDocs(
-                        req, "businessDocs", ShopDocDraftUtil.REGISTER_SCOPE);
-                if (!uploadedDraftPaths.isEmpty()) {
-                    ShopDocDraftUtil.replaceDraftDocs(session, ShopDocDraftUtil.REGISTER_SCOPE, uploadedDraftPaths);
-                }
-
-                List<String> draftPaths = ShopDocDraftUtil.getDraftPaths(session, ShopDocDraftUtil.REGISTER_SCOPE);
-                if (draftPaths.isEmpty()) {
-                    throw new Exception("Vui lòng tải lên ít nhất một tài liệu xác minh.");
-                }
-
+                List<String> draftPaths = collectVerificationDraftDocs(req, session);
                 String draftDocPathsJson = ShopDocDraftUtil.toJsonArray(draftPaths);
 
-                User user = new User();
-                user.setFullName(fullName);
-                user.setEmail(email);
-                user.setPasswordHash(password);
-                user.setPhone(phone);
-                user.setRole(role);
-
+                User user = buildUserFromForm(fullName, email, password, phone, role);
                 newUser = authService.register(user, storeName, address, preferredCategoriesJson, draftDocPathsJson);
                 promotedDocPaths = ShopDocDraftUtil.promoteDraftDocs(session, ShopDocDraftUtil.REGISTER_SCOPE, newUser.getUserId());
                 String finalDocPathsJson = ShopDocDraftUtil.toJsonArray(promotedDocPaths);
@@ -182,12 +166,7 @@ public class RegisterServlet extends HttpServlet {
                         preferredCategoriesJson, businessEmail, finalDocPathsJson);
                 ShopDocDraftUtil.clearDraftDocs(session, ShopDocDraftUtil.REGISTER_SCOPE);
             } else {
-                User user = new User();
-                user.setFullName(fullName);
-                user.setEmail(email);
-                user.setPasswordHash(password);
-                user.setPhone(phone);
-                user.setRole(role);
+                User user = buildUserFromForm(fullName, email, password, phone, role);
                 newUser = authService.register(user);
             }
 
@@ -245,16 +224,7 @@ public class RegisterServlet extends HttpServlet {
                 throw new Exception("Tài khoản của bạn đã đăng ký hoặc nộp đơn mở cửa hàng rồi.");
             }
 
-            List<String> uploadedDraftPaths = ShopDocDraftUtil.uploadDraftDocs(
-                    req, "businessDocs", ShopDocDraftUtil.REGISTER_SCOPE);
-            if (!uploadedDraftPaths.isEmpty()) {
-                ShopDocDraftUtil.replaceDraftDocs(session, ShopDocDraftUtil.REGISTER_SCOPE, uploadedDraftPaths);
-            }
-
-            List<String> draftPaths = ShopDocDraftUtil.getDraftPaths(session, ShopDocDraftUtil.REGISTER_SCOPE);
-            if (draftPaths.isEmpty()) {
-                throw new Exception("Vui lòng tải lên ít nhất một tài liệu xác minh.");
-            }
+            collectVerificationDraftDocs(req, session);
 
             promotedDocPaths = ShopDocDraftUtil.promoteDraftDocs(session, ShopDocDraftUtil.REGISTER_SCOPE, currentUser.getUserId());
             String docPathsJson = ShopDocDraftUtil.toJsonArray(promotedDocPaths);
@@ -313,6 +283,34 @@ public class RegisterServlet extends HttpServlet {
         for (String path : promotedDocPaths) {
             FileUploadUtil.delete(path);
         }
+    }
+
+    /** Tạo User entity từ dữ liệu form đăng ký (dùng chung cho nhánh CUSTOMER & SHOP_OWNER). */
+    private User buildUserFromForm(String fullName, String email, String password, String phone, String role) {
+        User user = new User();
+        user.setFullName(fullName);
+        user.setEmail(email);
+        user.setPasswordHash(password);
+        user.setPhone(phone);
+        user.setRole(role);
+        return user;
+    }
+
+    /**
+     * Nhận file tài liệu xác minh shop từ request, lưu vào draft theo session và trả về danh sách
+     * đường dẫn draft. Ném lỗi nếu chưa có tài liệu nào. Dùng chung cho đăng ký mới & nâng cấp shop.
+     */
+    private List<String> collectVerificationDraftDocs(HttpServletRequest req, HttpSession session) throws Exception {
+        List<String> uploadedDraftPaths = ShopDocDraftUtil.uploadDraftDocs(
+                req, "businessDocs", ShopDocDraftUtil.REGISTER_SCOPE);
+        if (!uploadedDraftPaths.isEmpty()) {
+            ShopDocDraftUtil.replaceDraftDocs(session, ShopDocDraftUtil.REGISTER_SCOPE, uploadedDraftPaths);
+        }
+        List<String> draftPaths = ShopDocDraftUtil.getDraftPaths(session, ShopDocDraftUtil.REGISTER_SCOPE);
+        if (draftPaths.isEmpty()) {
+            throw new Exception("Vui lòng tải lên ít nhất một tài liệu xác minh.");
+        }
+        return draftPaths;
     }
 
     private String buildCategoryJson(String[] catIds) {

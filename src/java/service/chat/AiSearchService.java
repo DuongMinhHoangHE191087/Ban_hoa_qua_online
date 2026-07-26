@@ -90,6 +90,7 @@ public class AiSearchService {
                 snapshot.getActiveProducts(),
                 snapshot.getCategoryNames(),
                 MAX_AI_CONTEXT_PRODUCTS);
+        String model = resolveModel();
         String requestBody = mapper.writeValueAsString(buildGeminiPayload(
                 userMessage,
                 snapshot.getCategories(),
@@ -108,7 +109,7 @@ public class AiSearchService {
             }
             long timeoutMs = Math.min(UPSTREAM_TIMEOUT_MS, remainingBudget);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" + apiKey))
+                    .uri(URI.create(buildGeminiEndpoint(model, apiKey, false)))
                     .timeout(Duration.ofMillis(timeoutMs))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
@@ -164,8 +165,8 @@ public class AiSearchService {
 
             lastErrorBody = truncateForLog(httpResponse.body());
             if (AI_CONFIG_ERROR_STATUS_CODES.contains(status)) {
-                String errorMessage = extractGeminiErrorMessage(status, lastErrorBody);
-                LoggerUtil.warn(log, "Gemini upstream config error status=%d body=%s", status, lastErrorBody);
+                String errorMessage = extractGeminiErrorMessage(status, lastErrorBody, model);
+                LoggerUtil.warn(log, "Gemini upstream config error status=%d model=%s body=%s", status, model, lastErrorBody);
                 return buildUpstreamErrorResponse(
                         startedAt,
                         "http_" + status,
@@ -226,13 +227,14 @@ public class AiSearchService {
                 snapshot.getActiveProducts(),
                 snapshot.getCategoryNames(),
                 MAX_AI_CONTEXT_PRODUCTS);
+        String model = resolveModel();
         String requestBody = mapper.writeValueAsString(buildGeminiStreamingPayload(
                 userMessage,
                 snapshot.getCategories(),
                 promptProducts));
 
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse&key=" + apiKey))
+                .uri(URI.create(buildGeminiEndpoint(model, apiKey, true)))
                 .timeout(Duration.ofSeconds(60))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody, StandardCharsets.UTF_8))
@@ -263,8 +265,8 @@ public class AiSearchService {
         if (status != 200) {
             String errorBody = readAllText(httpResponse.body());
             if (AI_CONFIG_ERROR_STATUS_CODES.contains(status)) {
-                String errorMessage = extractGeminiErrorMessage(status, errorBody);
-                LoggerUtil.warn(log, "Gemini stream config error status=%d body=%s", status, truncateForLog(errorBody));
+                String errorMessage = extractGeminiErrorMessage(status, errorBody, model);
+                LoggerUtil.warn(log, "Gemini stream config error status=%d model=%s body=%s", status, model, truncateForLog(errorBody));
                 return buildUpstreamErrorResponse(
                         startedAt,
                         "http_" + status,
@@ -347,7 +349,37 @@ public class AiSearchService {
         return null;
     }
 
-    private String extractGeminiErrorMessage(int status, String rawBody) {
+    /**
+     * Model Gemini theo thứ tự ưu tiên: system_config (Admin) → biến môi trường
+     * {@code GEMINI_MODEL} → mặc định {@link AppConfig#GEMINI_MODEL_DEFAULT}.
+     */
+    private String resolveModel() throws Exception {
+        String model = systemConfigDAO.getValue(AppConfig.CONFIG_GEMINI_MODEL);
+        if (model != null) {
+            model = model.trim();
+            if (!model.isEmpty()) {
+                return model;
+            }
+        }
+
+        String envModel = System.getenv("GEMINI_MODEL");
+        if (envModel != null) {
+            envModel = envModel.trim();
+            if (!envModel.isEmpty()) {
+                return envModel;
+            }
+        }
+
+        return AppConfig.GEMINI_MODEL_DEFAULT;
+    }
+
+    /** Sinh endpoint Gemini (v1beta) — một nguồn sự thật cho cả luồng stream lẫn non-stream. */
+    private String buildGeminiEndpoint(String model, String apiKey, boolean streaming) {
+        String method = streaming ? "streamGenerateContent?alt=sse&key=" : "generateContent?key=";
+        return "https://generativelanguage.googleapis.com/v1beta/models/" + model + ":" + method + apiKey;
+    }
+
+    private String extractGeminiErrorMessage(int status, String rawBody, String model) {
         String parsedMessage = null;
         if (rawBody != null && !rawBody.isBlank()) {
             try {
@@ -367,10 +399,30 @@ public class AiSearchService {
         if (parsedMessage == null && rawBody != null && !rawBody.isBlank()) {
             parsedMessage = rawBody;
         }
+        String base;
         if (parsedMessage == null || parsedMessage.isBlank()) {
-            return "Gemini từ chối yêu cầu với mã HTTP " + status + ".";
+            base = "Gemini từ chối yêu cầu với mã HTTP " + status + ".";
+        } else {
+            base = "Gemini từ chối yêu cầu với mã HTTP " + status + ": " + parsedMessage;
         }
-        return "Gemini từ chối yêu cầu với mã HTTP " + status + ": " + parsedMessage;
+        if (isModelUnavailableError(status, parsedMessage)) {
+            base += " (Model '" + model + "' không khả dụng với API key hiện tại. "
+                    + "Vào Admin → Cấu hình hệ thống và đổi 'gemini_model' sang model được hỗ trợ, "
+                    + "ví dụ: gemini-flash-latest, gemini-2.5-flash hoặc gemini-2.0-flash.)";
+        }
+        return base;
+    }
+
+    /** Nhận diện lỗi model không tồn tại/không được hỗ trợ để gợi ý quản trị viên đổi cấu hình. */
+    private boolean isModelUnavailableError(int status, String parsedMessage) {
+        if (status == 404) {
+            return true;
+        }
+        if (parsedMessage == null) {
+            return false;
+        }
+        String lower = parsedMessage.toLowerCase(Locale.ROOT);
+        return lower.contains("not found") || lower.contains("not supported");
     }
 
     private Map<String, Object> buildGeminiPayload(String userMessage,

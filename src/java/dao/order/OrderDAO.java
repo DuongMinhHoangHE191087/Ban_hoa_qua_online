@@ -336,65 +336,9 @@ public class OrderDAO extends BaseDAO {
     }
 
     /**
-     * Lưu đơn hàng mới vào DB và trả về ID đơn hàng tự sinh.
-     */
-    public int save(Order order) throws SQLException {
-        String sql = "INSERT INTO orders (customer_id, owner_id, parent_order_id, order_type, delivery_address, delivery_time_slot, notes, cancelled_at, cancelled_by, cancellation_reason, status, total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount, platform_fee, final_amount, payment_method, refund_status, created_at, updated_at) "
-                   + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), GETDATE())";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            ps.setInt(1, order.getCustomerId());
-            if (order.getOwnerIdObject() != null && order.getOwnerIdObject() > 0) {
-                ps.setInt(2, order.getOwnerIdObject());
-            } else {
-                ps.setNull(2, Types.INTEGER);
-            }
-            if (order.getParentOrderId() != null && order.getParentOrderId() > 0) {
-                ps.setInt(3, order.getParentOrderId());
-            } else {
-                ps.setNull(3, Types.INTEGER);
-            }
-            ps.setString(4, order.getOrderType() != null ? order.getOrderType() : "CHILD");
-            ps.setString(5, order.getDeliveryAddress());
-            ps.setString(6, order.getDeliveryTimeSlot());
-            ps.setString(7, order.getNotes());
-            
-            if (order.getCancelledAt() != null) {
-                ps.setTimestamp(8, Timestamp.valueOf(order.getCancelledAt()));
-            } else {
-                ps.setNull(8, Types.TIMESTAMP);
-            }
-            
-            if (order.getCancelledBy() != null) {
-                ps.setInt(9, order.getCancelledBy());
-            } else {
-                ps.setNull(9, Types.INTEGER);
-            }
-            
-            ps.setString(10, order.getCancellationReason());
-            ps.setString(11, order.getStatus() != null ? order.getStatus() : "PENDING_PAYMENT");
-            ps.setBigDecimal(12, order.getTotalAmount() != null ? order.getTotalAmount() : java.math.BigDecimal.ZERO);
-            ps.setBigDecimal(13, order.getDeliveryFee() != null ? order.getDeliveryFee() : java.math.BigDecimal.ZERO);
-            ps.setBigDecimal(14, order.getDiscountAmount() != null ? order.getDiscountAmount() : java.math.BigDecimal.ZERO);
-            ps.setBigDecimal(15, order.getSystemDiscountAmount() != null ? order.getSystemDiscountAmount() : java.math.BigDecimal.ZERO);
-            ps.setBigDecimal(16, order.getShopDiscountAmount() != null ? order.getShopDiscountAmount() : java.math.BigDecimal.ZERO);
-            ps.setBigDecimal(17, order.getPlatformFee() != null ? order.getPlatformFee() : java.math.BigDecimal.ZERO);
-            ps.setBigDecimal(18, order.getFinalAmount() != null ? order.getFinalAmount() : java.math.BigDecimal.ZERO);
-            ps.setString(19, order.getPaymentMethod() != null ? order.getPaymentMethod() : "COD");
-            ps.setString(20, order.getRefundStatus() != null ? order.getRefundStatus() : "NONE");
-            
-            ps.executeUpdate();
-            try (ResultSet rs = ps.getGeneratedKeys()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-            }
-        }
-        throw new SQLException("Lưu đơn hàng thất bại, không lấy được mã khóa tự tăng.");
-    }
-
-    /**
-     * Cập nhật trạng thái đơn hàng.
+     * Lưu đơn hàng mới trong một giao dịch cho sẵn (bản dùng thực tế của checkout).
+     * Bản {@code save(Order)} tự mở connection đã bị loại bỏ vì không nơi nào dùng và
+     * thiếu cột recipient_name/recipient_phone/shop_acceptance_deadline.
      */
     public int save(Connection conn, Order order) throws SQLException {
         String sql = "INSERT INTO orders (customer_id, owner_id, parent_order_id, order_type, delivery_address, "

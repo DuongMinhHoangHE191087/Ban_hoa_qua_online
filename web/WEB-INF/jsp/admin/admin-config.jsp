@@ -288,6 +288,10 @@
                 helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Có thể để trống để dùng biến môi trường GEMINI_API_KEY.';
                 valueInput.type = 'text';
                 valueInput.removeAttribute('step');
+            } else if (key === 'gemini_model') {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Tên model Gemini, ví dụ: gemini-flash-latest, gemini-2.5-flash, gemini-2.0-flash. Để trống để dùng mặc định gemini-flash-latest.';
+                valueInput.type = 'text';
+                valueInput.removeAttribute('step');
             } else if (type === 'DECIMAL') {
                 helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập số thập phân (ví dụ: 10.5 hoặc 5)';
                 valueInput.type = 'number';
