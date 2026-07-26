@@ -80,10 +80,6 @@
                                 <span class="material-symbols-outlined text-[18px]">open_in_new</span>
                                 Xem trạng thái đăng ký
                             </button>
-                            <a href="${pageContext.request.contextPath}/customer/shop-apply?edit=true" class="inline-flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-xs font-bold text-primary transition-all hover:border-emerald-300 hover:bg-emerald-50">
-                                <span class="material-symbols-outlined text-[18px]">edit</span>
-                                Quay lại form
-                            </a>
                         </div>
                     </div>
                 </div>

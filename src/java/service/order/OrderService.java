@@ -124,6 +124,27 @@ public class OrderService {
         // ADMIN and other privileged roles may cancel any order without ownership restriction
 
         cancelOrderAndRestoreStock(order, cancelledBy, reason, false);
+        
+        
+        // Send notifications after successful cancellation
+        if (AppConfig.ROLE_SHOP_OWNER.equals(user.getRole())) {
+            String refundMsg = AppConfig.PAYMENT_CK.equals(order.getPaymentMethod()) ? " Tiền đã được hoàn trả tự động." : "";
+            try {
+                notificationService.send(order.getCustomerId(), "ORDER_UPDATE", "Đơn hàng bị hủy",
+                        "Cửa hàng đã hủy đơn hàng #" + orderId + " của bạn với lý do: " + reason + refundMsg,
+                        "/profile/order-detail?orderId=" + orderId);
+            } catch (Exception e) {
+                LoggerUtil.warn(log, "Failed to notify customer of manual cancellation for orderId=" + orderId, e);
+            }
+        } else if (AppConfig.ROLE_CUSTOMER.equals(user.getRole()) && order.getOwnerIdObject() != null) {
+            try {
+                notificationService.send(order.getOwnerIdObject(), "ORDER_UPDATE", "Khách hàng hủy đơn",
+                        "Khách hàng đã hủy đơn hàng #" + orderId + " với lý do: " + reason,
+                        "/shop/orders/detail?orderId=" + orderId);
+            } catch (Exception e) {
+                LoggerUtil.warn(log, "Failed to notify shop owner of manual cancellation for orderId=" + orderId, e);
+            }
+        }
     }
 
     public PagedResultDTO shopOrders(int ownerId, String status, int page) throws SQLException {
