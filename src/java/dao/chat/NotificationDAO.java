@@ -211,7 +211,20 @@ public class NotificationDAO extends BaseDAO {
         n.setType(rs.getString("type"));
         n.setTitle(rs.getString("title"));
         n.setMessage(rs.getString("message"));
-        n.setActionUrl(rs.getString("action_url"));
+        
+        // Patch for legacy /customer/orders links
+        String actionUrl = rs.getString("action_url");
+        if ("/customer/orders".equals(actionUrl)) {
+            actionUrl = "/profile?tab=orders"; // fallback
+            String msg = n.getMessage();
+            if (msg != null) {
+                java.util.regex.Matcher m = java.util.regex.Pattern.compile("#(\\d+)").matcher(msg);
+                if (m.find()) {
+                    actionUrl = "/profile/order-detail?orderId=" + m.group(1);
+                }
+            }
+        }
+        n.setActionUrl(actionUrl);
         n.setIsRead(rs.getBoolean("is_read"));
         
         Timestamp createdAt = rs.getTimestamp("created_at");
