@@ -865,7 +865,7 @@ BEGIN
         delivery_trip_id INT NULL,
         trip_stop_seq INT NULL,
         staff_id INT NULL,
-        status NVARCHAR(20) NOT NULL CONSTRAINT DF_deliveries_status DEFAULT 'ASSIGNED' CONSTRAINT CK_deliveries_status CHECK (status IN ('ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED', 'FAILED')),
+        status NVARCHAR(20) NOT NULL CONSTRAINT DF_deliveries_status DEFAULT 'ASSIGNED' CONSTRAINT CK_deliveries_status CHECK (status IN ('ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED', 'FAILED', 'CANCELLED')),
         picked_up_at DATETIME NULL,
         delivered_at DATETIME NULL,
         failure_reason NVARCHAR(300) NULL,
@@ -877,6 +877,21 @@ BEGIN
         CONSTRAINT FK_deliveries_delivery_trip FOREIGN KEY (delivery_trip_id) REFERENCES dbo.delivery_trips(trip_id),
         CONSTRAINT FK_deliveries_staff FOREIGN KEY (staff_id) REFERENCES dbo.users(user_id)
     );
+END
+GO
+
+-- Idempotent: bổ sung trạng thái 'CANCELLED' cho deliveries.status ở các DB đã tạo trước đó
+-- (đồng bộ khi hủy đơn đang giao — giữ hiển thị "Đã hủy" cho shipper tra cứu).
+IF OBJECT_ID(N'dbo.deliveries', N'U') IS NOT NULL
+   AND NOT EXISTS (
+        SELECT 1 FROM sys.check_constraints
+        WHERE name = N'CK_deliveries_status'
+          AND parent_object_id = OBJECT_ID(N'dbo.deliveries')
+          AND definition LIKE N'%CANCELLED%')
+BEGIN
+    ALTER TABLE dbo.deliveries DROP CONSTRAINT CK_deliveries_status;
+    ALTER TABLE dbo.deliveries ADD CONSTRAINT CK_deliveries_status
+        CHECK (status IN ('ASSIGNED', 'PICKED_UP', 'IN_TRANSIT', 'DELIVERED', 'FAILED', 'CANCELLED'));
 END
 GO
 
@@ -991,13 +1006,15 @@ BEGIN
     INSERT INTO dbo.system_config (config_key, config_value, description, data_type)
     VALUES
         ('platform_fee_rate',       '0.05', N'Tỷ lệ phí nền tảng (Platform Fee Rate). Mặc định 0.05 (5%).', 'DECIMAL'),
-        ('settlement_freeze_days',  '15',   N'Số ngày đóng băng tiền quyết toán của shop.', 'INT'),
+        ('settlement_freeze_days',  '15',   N'[KHÔNG DÙNG bởi auto-settlement] Giữ để tương thích. Kết toán tự động đọc settlement_freeze_hours.', 'INT'),
+        ('settlement_freeze_hours', '24',   N'Số GIỜ đóng băng trước khi kết toán (auto-settlement dùng key này). Nên >= return_request_max_hours để không kết toán trước khi hết hạn đổi trả.', 'INT'),
         ('shop_accept_timeout_min', '30',   N'Thời gian tối đa (phút) để shop chấp nhận đơn hàng trước khi tự hủy.', 'INT'),
         ('return_request_max_hours','24',   N'Thời gian tối đa (giờ) để khách hàng gửi return request sau DELIVERED.', 'INT'),
         ('sepay_bank_id',           'MBBank', N'Mã ngân hàng thụ hưởng nhận thanh toán SePay.', 'STRING'),
         ('sepay_account_no',         'SBSEPAY3NHWA061W5V2', N'Số tài khoản nhận thanh toán SePay.', 'STRING'),
         ('sepay_account_name',       'CONG TY TNHH METAFRUIT', N'Tên chủ tài khoản nhận thanh toán SePay.', 'STRING'),
-        ('gemini_api_key',          '',                                               N'API Key cho Gemini 2.5 Flash. Có thể để trống để dùng biến môi trường GEMINI_API_KEY khi admin chưa cấu hình.', 'STRING'),
+        ('gemini_api_key',          '',                                               N'API Key cho Gemini ChatAI. Có thể để trống để dùng biến môi trường GEMINI_API_KEY khi admin chưa cấu hình.', 'STRING'),
+        ('gemini_model',            'gemini-flash-latest',                            N'Tên model Gemini dùng cho ChatAI (vd: gemini-flash-latest, gemini-2.5-flash, gemini-2.0-flash). Để trống để dùng mặc định gemini-flash-latest.', 'STRING'),
         ('product_auto_approve',    'false',  N'Tự động duyệt sản phẩm khi tạo mới hoặc cập nhật (true/false). Mặc định false.', 'BOOLEAN');
 
     PRINT 'Created system_config table and seeded defaults.';
@@ -1011,8 +1028,36 @@ BEGIN
     VALUES (
         'gemini_api_key',
         '',
-        N'API Key cho Gemini 2.5 Flash. Có thể để trống để dùng biến môi trường GEMINI_API_KEY khi admin chưa cấu hình.',
+        N'API Key cho Gemini ChatAI. Có thể để trống để dùng biến môi trường GEMINI_API_KEY khi admin chưa cấu hình.',
         'STRING'
+    );
+END
+GO
+
+-- Idempotent: bổ sung cấu hình model Gemini cho các DB đã khởi tạo trước đó
+IF OBJECT_ID(N'dbo.system_config', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM dbo.system_config WHERE config_key = 'gemini_model')
+BEGIN
+    INSERT INTO dbo.system_config (config_key, config_value, description, data_type)
+    VALUES (
+        'gemini_model',
+        'gemini-flash-latest',
+        N'Tên model Gemini dùng cho ChatAI (vd: gemini-flash-latest, gemini-2.5-flash, gemini-2.0-flash). Để trống để dùng mặc định gemini-flash-latest.',
+        'STRING'
+    );
+END
+GO
+
+-- Idempotent: bổ sung settlement_freeze_hours cho các DB đã khởi tạo trước đó
+IF OBJECT_ID(N'dbo.system_config', N'U') IS NOT NULL
+   AND NOT EXISTS (SELECT 1 FROM dbo.system_config WHERE config_key = 'settlement_freeze_hours')
+BEGIN
+    INSERT INTO dbo.system_config (config_key, config_value, description, data_type)
+    VALUES (
+        'settlement_freeze_hours',
+        '24',
+        N'Số GIỜ đóng băng trước khi kết toán (auto-settlement dùng key này). Nên >= return_request_max_hours.',
+        'INT'
     );
 END
 GO
@@ -2609,4 +2654,551 @@ BEGIN
     ALTER TABLE dbo.shop_settlements ADD CONSTRAINT FK_shop_settlements_cancelled_by FOREIGN KEY (cancelled_by) REFERENCES dbo.users(user_id);
     ALTER TABLE dbo.shop_settlements ADD CONSTRAINT FK_shop_settlements_paid_by FOREIGN KEY (paid_by) REFERENCES dbo.users(user_id);
 END
+GO
+
+
+-- =========================================================================
+-- DEMO DATA: full order/delivery/payment/settlement lifecycle (idempotent, ids>=300)
+-- Da gop tu seed_demo_full.sql — chay lai an toan nho IF NOT EXISTS + IDENTITY_INSERT.
+-- =========================================================================
+
+SET QUOTED_IDENTIFIER ON;
+SET ANSI_NULLS ON;
+GO
+
+-- =====================================================
+-- Idempotent seed data for complete order/delivery/payment/settlement demo
+-- =====================================================
+-- This file adds demo rows covering all order/delivery/payment/settlement states
+-- All inserts are guarded with IF NOT EXISTS to ensure idempotency
+-- =====================================================
+
+-- =====================================================
+-- Insert ORDERS (ids 300-307)
+-- =====================================================
+SET IDENTITY_INSERT dbo.orders ON;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 300)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        created_at, updated_at
+    ) VALUES (
+        300, 'CHILD', 5, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'CK', 'NONE', 'PENDING', 'PENDING_PAYMENT',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 301)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        created_at, updated_at
+    ) VALUES (
+        301, 'CHILD', 6, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'COD', 'NONE', 'PENDING', 'APPROVED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 302)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        created_at, updated_at
+    ) VALUES (
+        302, 'CHILD', 5, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'COD', 'NONE', 'PENDING', 'DISPATCHED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 303)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        created_at, updated_at
+    ) VALUES (
+        303, 'CHILD', 6, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'COD', 'NONE', 'PENDING', 'DISPATCHED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 304)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        created_at, updated_at
+    ) VALUES (
+        304, 'CHILD', 8, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'COD', 'NONE', 'PENDING', 'DISPATCHED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 305)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        cancelled_at, cancellation_reason,
+        created_at, updated_at
+    ) VALUES (
+        305, 'CHILD', 5, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'COD', 'NONE', 'PENDING', 'CANCELLED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), 'Giao hang that bai',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 306)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        cancelled_at, cancellation_reason,
+        created_at, updated_at
+    ) VALUES (
+        306, 'CHILD', 6, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'CK', 'NONE', 'PENDING', 'CANCELLED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), 'Admin huy don dang giao',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.orders WHERE order_id = 307)
+BEGIN
+    INSERT INTO dbo.orders (
+        order_id, order_type, customer_id, owner_id, parent_order_id,
+        total_amount, delivery_fee, discount_amount, system_discount_amount, shop_discount_amount,
+        platform_fee, final_amount, payment_method, refund_status, received_status, status,
+        delivery_address, recipient_name, recipient_phone, delivery_time_slot,
+        created_at, updated_at
+    ) VALUES (
+        307, 'CHILD', 8, 3, NULL,
+        70000, 15000, 0, 0, 0,
+        3500, 85000, 'COD', 'NONE', 'PENDING', 'DELIVERED',
+        '123 Demo Street, Ha Noi', 'Demo Nguoi Nhan', '0900000300', '08:00-12:00',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+SET IDENTITY_INSERT dbo.orders OFF;
+GO
+
+-- =====================================================
+-- Insert ORDER_ITEMS (for orders 300-307)
+-- =====================================================
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 300 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        300, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 301 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        301, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 302 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        302, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 303 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        303, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 304 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        304, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 305 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        305, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 306 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        306, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.order_items WHERE order_id = 307 AND variant_id = 1)
+BEGIN
+    INSERT INTO dbo.order_items (
+        order_id, variant_id, product_name_snapshot, variant_label_snapshot,
+        quantity, unit_price, subtotal, packaging_label_snapshot, packaging_price_snapshot
+    ) VALUES (
+        307, 1, 'Cam Sánh Cao Phong Hảo Bảnh', 'Hop 1kg',
+        2, 35000, 70000, NULL, 0
+    );
+END
+GO
+
+-- =====================================================
+-- Insert DELIVERY_TRIPS (ids 300-304 for orders 302-306)
+-- Note: PK column is 'trip_id', not 'delivery_trip_id'
+-- =====================================================
+SET IDENTITY_INSERT dbo.delivery_trips ON;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.delivery_trips WHERE trip_id = 300)
+BEGIN
+    INSERT INTO dbo.delivery_trips (
+        trip_id, parent_order_id, shipper_id, status,
+        created_at, updated_at
+    ) VALUES (
+        300, 302, NULL, 'PLANNED',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.delivery_trips WHERE trip_id = 301)
+BEGIN
+    INSERT INTO dbo.delivery_trips (
+        trip_id, parent_order_id, shipper_id, status,
+        created_at, updated_at
+    ) VALUES (
+        301, 303, 22, 'ASSIGNED',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.delivery_trips WHERE trip_id = 302)
+BEGIN
+    INSERT INTO dbo.delivery_trips (
+        trip_id, parent_order_id, shipper_id, status,
+        created_at, updated_at
+    ) VALUES (
+        302, 304, 22, 'ASSIGNED',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.delivery_trips WHERE trip_id = 303)
+BEGIN
+    INSERT INTO dbo.delivery_trips (
+        trip_id, parent_order_id, shipper_id, status,
+        created_at, updated_at
+    ) VALUES (
+        303, 305, 22, 'FAILED',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.delivery_trips WHERE trip_id = 304)
+BEGIN
+    INSERT INTO dbo.delivery_trips (
+        trip_id, parent_order_id, shipper_id, status,
+        created_at, updated_at
+    ) VALUES (
+        304, 306, 22, 'CANCELLED',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+SET IDENTITY_INSERT dbo.delivery_trips OFF;
+GO
+
+-- =====================================================
+-- Insert DELIVERIES (ids 300-305 for orders 302-307)
+-- =====================================================
+SET IDENTITY_INSERT dbo.deliveries ON;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.deliveries WHERE delivery_id = 300)
+BEGIN
+    INSERT INTO dbo.deliveries (
+        delivery_id, order_id, delivery_trip_id, staff_id, status,
+        picked_up_at, delivered_at, failure_reason,
+        created_at, updated_at
+    ) VALUES (
+        300, 302, 300, NULL, 'ASSIGNED',
+        NULL, NULL, NULL,
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.deliveries WHERE delivery_id = 301)
+BEGIN
+    INSERT INTO dbo.deliveries (
+        delivery_id, order_id, delivery_trip_id, staff_id, status,
+        picked_up_at, delivered_at, failure_reason,
+        created_at, updated_at
+    ) VALUES (
+        301, 303, 301, 22, 'PICKED_UP',
+        GETDATE(), NULL, NULL,
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.deliveries WHERE delivery_id = 302)
+BEGIN
+    INSERT INTO dbo.deliveries (
+        delivery_id, order_id, delivery_trip_id, staff_id, status,
+        picked_up_at, delivered_at, failure_reason,
+        created_at, updated_at
+    ) VALUES (
+        302, 304, 302, 22, 'IN_TRANSIT',
+        GETDATE(), NULL, NULL,
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.deliveries WHERE delivery_id = 303)
+BEGIN
+    INSERT INTO dbo.deliveries (
+        delivery_id, order_id, delivery_trip_id, staff_id, status,
+        picked_up_at, delivered_at, failure_reason,
+        created_at, updated_at
+    ) VALUES (
+        303, 305, 303, 22, 'FAILED',
+        GETDATE(), NULL, 'Khach khong nhan may',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.deliveries WHERE delivery_id = 304)
+BEGIN
+    INSERT INTO dbo.deliveries (
+        delivery_id, order_id, delivery_trip_id, staff_id, status,
+        picked_up_at, delivered_at, failure_reason,
+        created_at, updated_at
+    ) VALUES (
+        304, 306, 304, 22, 'CANCELLED',
+        NULL, NULL, 'Don hang da bi huy',
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.deliveries WHERE delivery_id = 305)
+BEGIN
+    INSERT INTO dbo.deliveries (
+        delivery_id, order_id, delivery_trip_id, staff_id, status,
+        picked_up_at, delivered_at, failure_reason,
+        created_at, updated_at
+    ) VALUES (
+        305, 307, NULL, 22, 'DELIVERED',
+        NULL, GETDATE(), NULL,
+        GETDATE(), GETDATE()
+    );
+END
+GO
+
+SET IDENTITY_INSERT dbo.deliveries OFF;
+GO
+
+-- =====================================================
+-- Insert PAYMENT_TRANSACTIONS (id 300 for order 300)
+-- =====================================================
+SET IDENTITY_INSERT dbo.payment_transactions ON;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.payment_transactions WHERE transaction_id = 300)
+BEGIN
+    INSERT INTO dbo.payment_transactions (
+        transaction_id, order_id, payment_method, amount, status,
+        sepay_reference, sepay_qr_code, expires_at, currency,
+        initiated_at, completed_at
+    ) VALUES (
+        300, 300, 'SEPAY', 85000, 'pending',
+        'MF3005001', 'https://qr.sepay.vn/img?bank=MBBank&acc=demo&amount=70000&des=MF3005001', DATEADD(minute, 10, GETDATE()), 'VND',
+        GETDATE(), NULL
+    );
+END
+GO
+
+SET IDENTITY_INSERT dbo.payment_transactions OFF;
+GO
+
+-- =====================================================
+-- Insert SHOP_SETTLEMENTS (id 300 for order 307)
+-- =====================================================
+SET IDENTITY_INSERT dbo.shop_settlements ON;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM dbo.shop_settlements WHERE settlement_id = 300)
+BEGIN
+    INSERT INTO dbo.shop_settlements (
+        settlement_id, owner_id, period_start, period_end,
+        gross_amount, platform_fee_amount, refund_amount, adjustment_amount, net_amount,
+        status, calculated_at, confirmed_at, confirmed_by,
+        paid_at, paid_by,
+        created_by
+    ) VALUES (
+        300, 3, CAST(GETDATE() AS DATE), CAST(GETDATE() AS DATE),
+        70000, 3500, 0, 0, 66500,
+        'CONFIRMED', GETDATE(), GETDATE(), 3,
+        NULL, NULL,
+        1
+    );
+END
+GO
+
+SET IDENTITY_INSERT dbo.shop_settlements OFF;
+GO
+
+-- =====================================================
+-- Insert SHOP_SETTLEMENT_ORDERS (id 300 for settlement 300 and order 307)
+-- =====================================================
+IF NOT EXISTS (SELECT 1 FROM dbo.shop_settlement_orders WHERE settlement_id = 300 AND order_id = 307)
+BEGIN
+    INSERT INTO dbo.shop_settlement_orders (
+        settlement_id, order_id, order_amount, platform_fee_amount,
+        discount_amount, refund_amount, net_amount
+    ) VALUES (
+        300, 307, 70000, 3500,
+        0, 0, 66500
+    );
+END
+GO
+
+-- =====================================================
+-- VERIFICATION QUERIES
+-- =====================================================
+PRINT '=== ORDER STATUS DISTRIBUTION ===';
+SELECT status, COUNT(*) AS count FROM dbo.orders WHERE order_id >= 300 GROUP BY status ORDER BY status;
+GO
+
+PRINT '=== DELIVERY STATUS DISTRIBUTION ===';
+SELECT status, COUNT(*) AS count FROM dbo.deliveries WHERE delivery_id >= 300 GROUP BY status ORDER BY status;
+GO
+
+PRINT '=== DELIVERY_TRIP STATUS DISTRIBUTION ===';
+SELECT status, COUNT(*) AS count FROM dbo.delivery_trips WHERE trip_id >= 300 GROUP BY status ORDER BY status;
+GO
+
+PRINT '=== PAYMENT_TRANSACTION STATUS DISTRIBUTION ===';
+SELECT status, COUNT(*) AS count FROM dbo.payment_transactions WHERE transaction_id >= 300 GROUP BY status ORDER BY status;
+GO
+
+PRINT '=== SHOP_SETTLEMENT STATUS DISTRIBUTION ===';
+SELECT status, COUNT(*) AS count FROM dbo.shop_settlements WHERE settlement_id >= 300 GROUP BY status ORDER BY status;
+GO
+
+PRINT '=== SEED DATA INSERT COMPLETE ===';
+
+-- =========================================================
+-- DEMO: return_requests da trang thai (REQUESTED / APPROVED / COMPLETED / REJECTED)
+-- =========================================================
+SET IDENTITY_INSERT dbo.return_requests ON;
+IF NOT EXISTS (SELECT 1 FROM dbo.return_requests WHERE return_request_id=300)
+  INSERT INTO dbo.return_requests (return_request_id, order_id, order_item_id, customer_id, request_type, reason_code, description, requested_quantity, refund_amount, status)
+  VALUES (300, 1, 1, 5, 'RETURN', 'WRONG_ITEM', 'Demo: giao nham loai qua', 1, 0, 'REQUESTED');
+IF NOT EXISTS (SELECT 1 FROM dbo.return_requests WHERE return_request_id=301)
+  INSERT INTO dbo.return_requests (return_request_id, order_id, order_item_id, customer_id, request_type, reason_code, description, requested_quantity, resolution_type, refund_amount, status, decided_by)
+  VALUES (301, 2, 3, 6, 'RETURN', 'DAMAGED', 'Demo: hang bi dap, da duyet hoan tien', 1, 'REFUND', 219000.00, 'APPROVED', 1);
+IF NOT EXISTS (SELECT 1 FROM dbo.return_requests WHERE return_request_id=302)
+  INSERT INTO dbo.return_requests (return_request_id, order_id, order_item_id, customer_id, request_type, reason_code, description, requested_quantity, resolution_type, refund_amount, status, decided_by, resolved_at)
+  VALUES (302, 3, 5, 5, 'RETURN', 'MISSING_ITEM', 'Demo: thieu hang, da hoan tien xong', 1, 'REFUND', 139800.00, 'COMPLETED', 1, GETDATE());
+IF NOT EXISTS (SELECT 1 FROM dbo.return_requests WHERE return_request_id=303)
+  INSERT INTO dbo.return_requests (return_request_id, order_id, order_item_id, customer_id, request_type, reason_code, description, requested_quantity, resolution_type, refund_amount, status, decided_by, decision_reason, resolved_at)
+  VALUES (303, 10, 10, 10, 'EXCHANGE', 'NOT_AS_DESCRIBED', 'Demo: yeu cau doi hang bi tu choi', 1, 'REJECT', 0, 'REJECTED', 1, 'Khong du dieu kien doi tra', GETDATE());
+SET IDENTITY_INSERT dbo.return_requests OFF;
+GO
+PRINT '=== DEMO return_requests seeded (300-303) ===';
 GO

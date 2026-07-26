@@ -294,18 +294,6 @@ public class CartServlet extends HttpServlet {
         return "out_of_stock";
     }
 
-    private boolean isStockRelatedMessage(String message) {
-        if (message == null) {
-            return false;
-        }
-        return message.contains("vượt quá số lượng còn lại trong kho")
-                || message.contains("hết số lượng bạn cần mua")
-                || message.contains("hết hàng")
-                || message.contains("chỉ còn")
-                || message.contains("không còn bán")
-                || isOutOfSeasonMessage(message);
-    }
-
     private boolean isOutOfSeasonMessage(String message) {
         if (message == null) {
             return false;

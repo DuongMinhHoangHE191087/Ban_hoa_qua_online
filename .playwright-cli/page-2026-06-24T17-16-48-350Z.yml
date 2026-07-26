@@ -1,5 +1,0 @@
-- generic [active] [ref=e1]:
-  - heading "Testing Checkout DB Insertion..." [level=3] [ref=e2]
-  - text: Connection OK
-  - text: Insert OK, Order ID = 104
-  - text: Rollback OK

@@ -245,7 +245,7 @@ public class ReviewServlet extends HttpServlet {
         String orderItemIdStr = req.getParameter("orderItemId");
         if (orderIdStr == null || orderItemIdStr == null) {
             SessionUtil.flashError(session, "Thiếu thông tin đánh giá cần chỉnh sửa.");
-            resp.sendRedirect(req.getContextPath() + "/customer/orders");
+            resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
             return;
         }
 
@@ -256,7 +256,7 @@ public class ReviewServlet extends HttpServlet {
             Order order = orderDAO.findByIdForCustomer(orderId, user.getUserId());
             if (order == null || !"DELIVERED".equals(order.getStatus())) {
                 SessionUtil.flashError(session, "Đơn hàng không hợp lệ để chỉnh sửa đánh giá.");
-                resp.sendRedirect(req.getContextPath() + "/customer/orders");
+                resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
                 return;
             }
 
@@ -269,14 +269,14 @@ public class ReviewServlet extends HttpServlet {
             }
             if (!belongsToOrder) {
                 SessionUtil.flashError(session, "Chi tiết đơn hàng không hợp lệ để chỉnh sửa.");
-                resp.sendRedirect(req.getContextPath() + "/customer/orders");
+                resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
                 return;
             }
 
             Review review = reviewDAO.findByOrderItemId(orderItemId);
             if (review == null || review.getCustomerId() != user.getUserId()) {
                 SessionUtil.flashError(session, "Không tìm thấy đánh giá để chỉnh sửa.");
-                resp.sendRedirect(req.getContextPath() + "/customer/orders");
+                resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
                 return;
             }
 
@@ -288,7 +288,7 @@ public class ReviewServlet extends HttpServlet {
         } catch (Exception e) {
             LoggerUtil.error(log, "Lỗi khi hiển thị form sửa đánh giá", e);
             SessionUtil.flashError(session, ErrorMessageUtil.logAndGetUserMessage(log, "Failed to show review edit form", e));
-            resp.sendRedirect(req.getContextPath() + "/customer/orders");
+            resp.sendRedirect(req.getContextPath() + "/profile?tab=orders");
         }
     }
 

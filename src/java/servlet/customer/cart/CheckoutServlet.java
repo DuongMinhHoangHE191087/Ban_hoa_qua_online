@@ -144,7 +144,6 @@ public class CheckoutServlet extends HttpServlet {
             CheckoutResultDTO result = checkoutService.placeOrder(user, checkoutRequest, req.getRemoteAddr());
             SessionUtil.setCurrentUser(session, user);
             session.setAttribute("_purgedCartItemIds", result.getPurgedCartItemIds());
-            session.setAttribute("_purgedVariantIds", result.getPurgedCartItemIds());
             SessionUtil.flashSuccess(session, result.getSuccessMessage());
             if (result.isPaymentRequired()) {
                 resp.sendRedirect(req.getContextPath() + "/checkout?action=payment&orderId=" + result.getOrderId());

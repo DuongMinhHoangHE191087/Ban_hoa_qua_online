@@ -281,9 +281,8 @@
     </c:choose>
 
     <%-- CRITICAL SCRIPT: RESET GIỎ HÀNG LOCAL STORAGE CHỌN LỌC --%>
-    <c:set var="purgedIds" value="${not empty sessionScope._purgedCartItemIds ? sessionScope._purgedCartItemIds : sessionScope._purgedVariantIds}"/>
+    <c:set var="purgedIds" value="${sessionScope._purgedCartItemIds}"/>
     <c:remove var="_purgedCartItemIds" scope="session"/>
-    <c:remove var="_purgedVariantIds" scope="session"/>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
             const purgedIdsRaw = '<c:out value="${purgedIds}" default=""/>';

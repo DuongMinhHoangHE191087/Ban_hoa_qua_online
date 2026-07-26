@@ -617,17 +617,17 @@
                                                 <div>
                                                     <label for="modal-originCountry"
                                                         class="block text-xs font-bold text-txt-2 mb-1.5">Quốc
-                                                        gia</label>
+                                                        gia <span class="text-red-500">*</span></label>
                                                     <input type="text" name="originCountry" id="modal-originCountry"
-                                                        value="Việt Nam" class="form-control-custom">
+                                                        value="Việt Nam" class="form-control-custom" required maxlength="100">
                                                 </div>
                                                 <div>
                                                     <label for="modal-originRegion"
                                                         class="block text-xs font-bold text-txt-2 mb-1.5">Vùng sản
-                                                        xuất</label>
+                                                        xuất <span class="text-red-500">*</span></label>
                                                     <input type="text" name="originRegion" id="modal-originRegion"
                                                         placeholder="Ví dụ: Đắk Lắk, Đà Lạt..."
-                                                        class="form-control-custom">
+                                                        class="form-control-custom" required maxlength="150">
                                                 </div>
                                             </div>
 
@@ -635,16 +635,16 @@
                                                 <div>
                                                     <label for="modal-harvestDate"
                                                         class="block text-xs font-bold text-txt-2 mb-1.5">Ngày thu
-                                                        hoạch</label>
+                                                        hoạch <span class="text-red-500">*</span></label>
                                                     <input type="date" name="harvestDate" id="modal-harvestDate"
-                                                        class="form-control-custom">
+                                                        class="form-control-custom" required>
                                                 </div>
                                                 <div>
                                                     <label for="modal-shelfLifeDays"
                                                         class="block text-xs font-bold text-txt-2 mb-1.5">Hạn sử dụng
-                                                        (Số ngày)</label>
+                                                        (Số ngày)<span class="text-red-500">*</span></label>
                                                     <input type="number" name="shelfLifeDays" id="modal-shelfLifeDays"
-                                                        min="1" placeholder="Ví dụ: 7" class="form-control-custom">
+                                                        min="1" max="3650" placeholder="Ví dụ: 7" class="form-control-custom" required>
                                                 </div>
                                             </div>
 

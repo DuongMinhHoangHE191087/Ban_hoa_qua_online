@@ -421,7 +421,7 @@ CREATE TABLE deliveries (
     delivery_trip_id INT NULL FOREIGN KEY REFERENCES delivery_trips(trip_id),
     trip_stop_seq INT NULL,
     staff_id INT NULL FOREIGN KEY REFERENCES users(user_id),
-    status NVARCHAR(20) NOT NULL DEFAULT 'ASSIGNED' CHECK (status IN ('ASSIGNED','PICKED_UP','IN_TRANSIT','DELIVERED','FAILED')),
+    status NVARCHAR(20) NOT NULL DEFAULT 'ASSIGNED' CHECK (status IN ('ASSIGNED','PICKED_UP','IN_TRANSIT','DELIVERED','FAILED','CANCELLED')),
     picked_up_at DATETIME NULL,
     delivered_at DATETIME NULL,
     failure_reason NVARCHAR(300) NULL,

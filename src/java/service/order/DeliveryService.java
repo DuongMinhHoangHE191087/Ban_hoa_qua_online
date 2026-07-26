@@ -122,6 +122,8 @@ public class DeliveryService {
                 // 1. Update delivery status
                 deliveryDAO.updateStatusAndProof(conn, deliveryId, status, failureReason, proofImageUrl);
 
+                // FAILED: hủy đơn + hoàn kho trong cùng transaction; các trạng thái khác chỉ cập nhật delivery.
+                Order failedOrder = null;
                 if (next == DeliveryStatus.FAILED) {
                     Order order = orderDAO.findOneById(conn, del.getOrderId());
                     if (order != null) {
@@ -137,33 +139,37 @@ public class DeliveryService {
                                 inventoryService.restore(conn, item.getVariantId(), item.getQuantity(), order.getOrderId(), staffId);
                             }
                         }
-
-                        conn.commit();
-
-                        // 4. Send notifications
-                        try {
-                            User customer = userDAO.findUserById(order.getCustomerId());
-                            if (customer != null) {
-                                String customerMsg = "Đơn hàng #" + order.getOrderId() + " giao hàng thất bại. Lý do: " + failureReason;
-                                notificationService.send(customer.getUserId(), AppConfig.NOTIF_ORDER_UPDATE, "Giao hàng thất bại", customerMsg, "/orders/detail?orderId=" + order.getOrderId());
-                            }
-                        } catch (Exception ex) {
-                            LoggerUtil.warn(log, "Failed to send failure notification to customer for orderId=" + order.getOrderId(), ex);
+                        // Đồng bộ chuyến giao thất bại (D4)
+                        if (del.getDeliveryTripId() != null) {
+                            deliveryTripDAO.updateStatus(conn, del.getDeliveryTripId(), "FAILED");
                         }
-
-                        try {
-                            if (order.getOwnerIdObject() != null) {
-                                String ownerMsg = "Đơn hàng #" + order.getOrderId() + " giao hàng thất bại và đã được hoàn lại kho. Lý do: " + failureReason;
-                                notificationService.send(order.getOwnerIdObject(), AppConfig.NOTIF_ORDER_UPDATE, "Giao hàng thất bại", ownerMsg, "/shop/orders");
-                            }
-                        } catch (Exception ex) {
-                            LoggerUtil.warn(log, "Failed to send failure notification to owner for orderId=" + order.getOrderId(), ex);
-                        }
-                    } else {
-                        conn.commit();
+                        failedOrder = order;
                     }
-                } else {
-                    conn.commit();
+                }
+
+                // 4. Một điểm commit duy nhất cho mọi nhánh
+                conn.commit();
+
+                // 5. Gửi thông báo async (ngoài transaction) khi đơn bị hủy do giao thất bại
+                if (failedOrder != null) {
+                    try {
+                        User customer = userDAO.findUserById(failedOrder.getCustomerId());
+                        if (customer != null) {
+                            String customerMsg = "Đơn hàng #" + failedOrder.getOrderId() + " giao hàng thất bại. Lý do: " + failureReason;
+                            notificationService.send(customer.getUserId(), AppConfig.NOTIF_ORDER_UPDATE, "Giao hàng thất bại", customerMsg, "/orders/detail?orderId=" + failedOrder.getOrderId());
+                        }
+                    } catch (Exception ex) {
+                        LoggerUtil.warn(log, "Failed to send failure notification to customer for orderId=" + failedOrder.getOrderId(), ex);
+                    }
+
+                    try {
+                        if (failedOrder.getOwnerIdObject() != null) {
+                            String ownerMsg = "Đơn hàng #" + failedOrder.getOrderId() + " giao hàng thất bại và đã được hoàn lại kho. Lý do: " + failureReason;
+                            notificationService.send(failedOrder.getOwnerIdObject(), AppConfig.NOTIF_ORDER_UPDATE, "Giao hàng thất bại", ownerMsg, "/shop/orders");
+                        }
+                    } catch (Exception ex) {
+                        LoggerUtil.warn(log, "Failed to send failure notification to owner for orderId=" + failedOrder.getOrderId(), ex);
+                    }
                 }
             } catch (SQLException | RuntimeException ex) {
                 conn.rollback();
@@ -269,14 +275,28 @@ public class DeliveryService {
         try (Connection conn = orderDAO.openConnection()) {
             conn.setAutoCommit(false);
             try {
+                // 0. Nạp đơn & CHẶN nếu đơn đã hủy/đã hoàn tất (DLV-05): không cho lật CANCELLED -> DELIVERED,
+                //    đồng thời tránh ghi nhầm payment COD cho đơn đã bị hủy.
+                Order order = orderDAO.findOneById(conn, del.getOrderId());
+                if (order == null) {
+                    throw new IllegalArgumentException("Không tìm thấy đơn hàng tương ứng.");
+                }
+                if (AppConfig.ORDER_CANCELLED.equals(order.getStatus())
+                        || AppConfig.ORDER_DELIVERED.equals(order.getStatus())) {
+                    throw new BusinessException("INVALID_ORDER_STATUS",
+                            "Đơn hàng đã bị hủy hoặc đã hoàn tất — không thể xác nhận giao hàng.");
+                }
+
                 // 1. Update deliveries table
                 deliveryDAO.updateStatusAndProof(conn, deliveryId, "DELIVERED", null, proofImageUrl);
 
                 // 2. Update child order -> DELIVERED
                 orderDAO.updateStatus(conn, del.getOrderId(), "DELIVERED");
 
-                // 3. Load order to know payment method and parent
-                Order order = orderDAO.findOneById(conn, del.getOrderId());
+                // 2b. Đồng bộ trạng thái chuyến giao (D4 — không để delivery_trips kẹt ở ASSIGNED)
+                if (del.getDeliveryTripId() != null) {
+                    deliveryTripDAO.updateStatus(conn, del.getDeliveryTripId(), "DELIVERED");
+                }
 
                 if (order != null) {
                     // 4. COD — tạo payment_transaction completed khi shipper thu tiền mặt

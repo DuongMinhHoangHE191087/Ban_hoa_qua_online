@@ -241,7 +241,7 @@ public final class AppConfig {
         // Return Request
         // ------------------------------------------------------------------
         /** Khách có tối đa bao nhiêu giờ sau khi DELIVERED để gửi return request. REF-01 */
-        public static final int    RETURN_REQUEST_MAX_HOURS   = 6;        // 6 giờ
+        public static final int    RETURN_REQUEST_MAX_HOURS   = 24;       // 24 giờ (khớp seed return_request_max_hours)
 
         // ------------------------------------------------------------------
         // SePay / VietQR (thêm domain deploy ở đây khi lên production)
@@ -271,6 +271,15 @@ public final class AppConfig {
         public static final String CONFIG_SEPAY_ACCOUNT_NO     = "sepay_account_no";
         public static final String CONFIG_SEPAY_ACCOUNT_NAME   = "sepay_account_name";
         public static final String CONFIG_GEMINI_API_KEY       = "gemini_api_key";
+        public static final String CONFIG_GEMINI_MODEL         = "gemini_model";
+
+        /**
+         * Model Gemini mặc định khi Admin chưa cấu hình (system_config key {@code gemini_model})
+         * và biến môi trường {@code GEMINI_MODEL} cũng trống.
+         * Dùng alias "-latest" để Google tự trỏ sang bản flash hiện hành, tránh lỗi 404
+         * "model không khả dụng" khi một model có phiên bản cố định bị ngừng phục vụ.
+         */
+        public static final String GEMINI_MODEL_DEFAULT        = "gemini-flash-latest";
 
         private AppConfig() {
                 /* Utility class — không khởi tạo */ }

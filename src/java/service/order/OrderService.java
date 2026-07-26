@@ -38,6 +38,8 @@ public class OrderService {
 
     private final OrderDAO orderDAO = new OrderDAO();
     private final PaymentDAO paymentDAO = new PaymentDAO();
+    private final dao.order.DeliveryDAO deliveryDAO = new dao.order.DeliveryDAO();
+    private final dao.order.DeliveryTripDAO deliveryTripDAO = new dao.order.DeliveryTripDAO();
     private final NotificationService notificationService = new NotificationService();
     private final EmailService emailService = new EmailService();
     private final InventoryService inventoryService = new InventoryService();
@@ -122,6 +124,27 @@ public class OrderService {
         // ADMIN and other privileged roles may cancel any order without ownership restriction
 
         cancelOrderAndRestoreStock(order, cancelledBy, reason, false);
+        
+        
+        // Send notifications after successful cancellation
+        if (AppConfig.ROLE_SHOP_OWNER.equals(user.getRole())) {
+            String refundMsg = AppConfig.PAYMENT_CK.equals(order.getPaymentMethod()) ? " Tiền đã được hoàn trả tự động." : "";
+            try {
+                notificationService.send(order.getCustomerId(), "ORDER_UPDATE", "Đơn hàng bị hủy",
+                        "Cửa hàng đã hủy đơn hàng #" + orderId + " của bạn với lý do: " + reason + refundMsg,
+                        "/profile/order-detail?orderId=" + orderId);
+            } catch (Exception e) {
+                LoggerUtil.warn(log, "Failed to notify customer of manual cancellation for orderId=" + orderId, e);
+            }
+        } else if (AppConfig.ROLE_CUSTOMER.equals(user.getRole()) && order.getOwnerIdObject() != null) {
+            try {
+                notificationService.send(order.getOwnerIdObject(), "ORDER_UPDATE", "Khách hàng hủy đơn",
+                        "Khách hàng đã hủy đơn hàng #" + orderId + " với lý do: " + reason,
+                        "/shop/orders/detail?orderId=" + orderId);
+            } catch (Exception e) {
+                LoggerUtil.warn(log, "Failed to notify shop owner of manual cancellation for orderId=" + orderId, e);
+            }
+        }
     }
 
     public PagedResultDTO shopOrders(int ownerId, String status, int page) throws SQLException {
@@ -279,7 +302,7 @@ public class OrderService {
                                         + (AppConfig.PAYMENT_CK.equals(paymentMethod)
                                         ? "Tiền đã được hoàn trả tự động vào tài khoản của bạn. " : "")
                                         + "Vui lòng đặt lại đơn hàng khác.",
-                                "/customer/orders");
+                                "/profile/order-detail?orderId=" + orderId);
                     } catch (Exception e) {
                         LoggerUtil.warn(log, "Failed to notify customer of auto cancellation for orderId=" + orderId, e);
                     }
@@ -380,6 +403,23 @@ public class OrderService {
                 }
 
                 orderDAO.cancel(conn, orderId, cancelledBy, reason);
+
+                // D2: đồng bộ delivery/trip khi hủy đơn đang giao — đặt 'CANCELLED' (KHÔNG dùng 'FAILED'
+                // để không làm sai chỉ số countRecentFailedDeliveries ảnh hưởng điều kiện COD của khách).
+                // Vẫn giữ dòng deliveries để shipper tra cứu (dashboard hiển thị "Đã hủy", ẩn thao tác).
+                model.entity.order.Delivery activeDelivery = deliveryDAO.findByOrderId(orderId);
+                if (activeDelivery != null) {
+                    String ds = activeDelivery.getStatus();
+                    boolean terminal = "DELIVERED".equals(ds) || "FAILED".equals(ds) || "CANCELLED".equals(ds);
+                    if (!terminal) {
+                        deliveryDAO.updateStatusAndProof(conn, activeDelivery.getDeliveryId(),
+                                "CANCELLED", "Đơn hàng đã bị hủy: " + reason, null);
+                        if (activeDelivery.getDeliveryTripId() != null) {
+                            deliveryTripDAO.updateStatus(conn, activeDelivery.getDeliveryTripId(), "CANCELLED");
+                        }
+                    }
+                }
+
                 List<OrderItem> items = orderDAO.findItemsByOrderId(conn, orderId);
                 for (OrderItem item : items) {
                     if (item.getVariantId() != null) {

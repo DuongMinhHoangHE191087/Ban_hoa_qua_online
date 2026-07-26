@@ -62,12 +62,8 @@ public class LoginServlet extends HttpServlet {
         String password = req.getParameter("password");
         String redirectTarget = req.getParameter("redirect");
         
-        if (identifier != null) {
-            identifier = identifier.trim();
-            if (identifier.matches("^(0|\\+84|84)\\d+$") || identifier.matches("^\\d+$")) {
-                identifier = util.ValidationUtil.normalizePhone(identifier);
-            }
-        }
+        // Chuẩn hóa identifier (email/SĐT) được xử lý tập trung trong AuthService.login()
+        // — servlet chỉ đọc tham số thô, tránh trùng lặp logic normalize (single source of truth).
         
         // 1. Kiểm tra CSRF token thủ công tại Servlet để tăng tính bảo mật
         String sessionCsrf = (String) req.getSession().getAttribute(AppConfig.SESSION_CSRF_TOKEN);

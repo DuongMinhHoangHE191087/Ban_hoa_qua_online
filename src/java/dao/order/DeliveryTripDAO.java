@@ -85,9 +85,15 @@ public class DeliveryTripDAO extends BaseDAO {
     }
 
     public void updateStatus(int tripId, String status) throws SQLException {
+        try (Connection conn = getConnection()) {
+            updateStatus(conn, tripId, status);
+        }
+    }
+
+    /** Bản dùng chung một transaction (đồng bộ trạng thái trip khi giao xong/thất bại/hủy đơn). */
+    public void updateStatus(Connection conn, int tripId, String status) throws SQLException {
         String sql = "UPDATE delivery_trips SET status = ?, updated_at = GETDATE() WHERE trip_id = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setString(1, status);
             ps.setInt(2, tripId);
             ps.executeUpdate();
