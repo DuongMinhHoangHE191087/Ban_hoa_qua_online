@@ -57,11 +57,6 @@
                 <c:when test="${not empty sessionScope.currentUser}">
                     <ft:allow role="SHOP_OWNER">
                         <li>
-                            <a href="${pageContext.request.contextPath}/home" class="menu-link">
-                                <i class="fa-solid fa-store"></i> Cửa hàng
-                            </a>
-                        </li>
-                        <li>
                             <a href="${pageContext.request.contextPath}/shop/dashboard" class="menu-link highlight-shop">
                                 <i class="fa-solid fa-shop"></i> Kênh người bán
                             </a>
