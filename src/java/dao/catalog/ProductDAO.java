@@ -740,12 +740,42 @@ public class ProductDAO extends BaseDAO {
     }
 
     public void autoDeactivateExpiredProducts() throws SQLException {
-        String sql = "UPDATE products SET status = 'OUT_OF_SEASON', updated_at = GETDATE() "
-                + "WHERE status = 'ACTIVE' AND harvest_date IS NOT NULL AND shelf_life_days IS NOT NULL AND shelf_life_days > 0 "
-                + "AND DATEADD(day, shelf_life_days, harvest_date) <= CAST(GETDATE() AS DATE)";
-        try (Connection conn = getConnection();
-                PreparedStatement ps = conn.prepareStatement(sql)) {
-            ps.executeUpdate();
+        String sqlDeactivate = "UPDATE products SET status = 'OUT_OF_SEASON', updated_at = GETDATE() "
+                + "WHERE status = 'ACTIVE' AND ("
+                + "  (harvest_date IS NOT NULL AND shelf_life_days IS NOT NULL AND shelf_life_days > 0 "
+                + "   AND DATEADD(day, shelf_life_days, harvest_date) <= CAST(GETDATE() AS DATE))"
+                + "  OR"
+                + "  (season_start_month IS NOT NULL AND season_end_month IS NOT NULL AND ("
+                + "    (season_start_month <= season_end_month AND MONTH(GETDATE()) NOT BETWEEN season_start_month AND season_end_month)"
+                + "    OR"
+                + "    (season_start_month > season_end_month AND MONTH(GETDATE()) < season_start_month AND MONTH(GETDATE()) > season_end_month)"
+                + "  ))"
+                + ")";
+
+        String sqlReactivate = "UPDATE products SET status = 'ACTIVE', updated_at = GETDATE() "
+                + "WHERE status = 'OUT_OF_SEASON' AND ("
+                + "  (season_start_month IS NULL OR season_end_month IS NULL OR ("
+                + "    (season_start_month <= season_end_month AND MONTH(GETDATE()) BETWEEN season_start_month AND season_end_month)"
+                + "    OR"
+                + "    (season_start_month > season_end_month AND (MONTH(GETDATE()) >= season_start_month OR MONTH(GETDATE()) <= season_end_month))"
+                + "  ))"
+                + "  AND NOT (harvest_date IS NOT NULL AND shelf_life_days IS NOT NULL AND shelf_life_days > 0 "
+                + "           AND DATEADD(day, shelf_life_days, harvest_date) <= CAST(GETDATE() AS DATE))"
+                + ")";
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+            try (PreparedStatement psDeact = conn.prepareStatement(sqlDeactivate);
+                 PreparedStatement psReact = conn.prepareStatement(sqlReactivate)) {
+                psDeact.executeUpdate();
+                psReact.executeUpdate();
+                conn.commit();
+            } catch (SQLException e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 

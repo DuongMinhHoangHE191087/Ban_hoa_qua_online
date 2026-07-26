@@ -82,6 +82,31 @@
                                                         <fmt:formatNumber value="${c.config_value * 100}" pattern="#.##"/>%
                                                     </span>
                                                 </c:when>
+                                                <c:when test="${c.data_type == 'BOOLEAN'}">
+                                                    <form id="toggle-form-${c.config_key}" method="POST" action="${pageContext.request.contextPath}/admin/config" class="m-0 inline-flex items-center">
+                                                        <input type="hidden" name="_csrf" value="${sessionScope._csrfToken}">
+                                                        <input type="hidden" name="action" value="update">
+                                                        <input type="hidden" name="configKey" value="${fn:escapeXml(c.config_key)}">
+                                                        <input type="hidden" name="configValue" value="${c.config_value == 'true' ? 'false' : 'true'}">
+                                                        <input type="hidden" name="reason" value="Bật/Tắt cấu hình ${fn:escapeXml(c.config_key)} qua giao diện điều khiển">
+                                                        <label class="relative inline-flex items-center cursor-pointer select-none">
+                                                            <input type="checkbox" ${c.config_value == 'true' ? 'checked' : ''} 
+                                                                   onchange="confirmToggleConfig('${fn:escapeXml(c.config_key)}', '${fn:escapeXml(c.config_key)}', this.checked)" 
+                                                                   class="sr-only peer">
+                                                            <div class="w-11 h-6 bg-slate-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary"></div>
+                                                            <span class="ms-3 text-xs font-bold text-txt-2">
+                                                                <c:choose>
+                                                                    <c:when test="${c.config_value == 'true'}">
+                                                                        <span class="text-emerald-600"><i class="fa-solid fa-circle-check mr-1"></i> Bật</span>
+                                                                    </c:when>
+                                                                    <c:otherwise>
+                                                                        <span class="text-slate-500"><i class="fa-solid fa-circle-xmark mr-1"></i> Tắt</span>
+                                                                    </c:otherwise>
+                                                                </c:choose>
+                                                            </span>
+                                                        </label>
+                                                    </form>
+                                                </c:when>
                                                 <c:otherwise>
                                                     <c:out value="${c.config_value}" />
                                                 </c:otherwise>
@@ -171,10 +196,14 @@
             </div>
 
             <div class="mb-4">
-                <label class="block text-xs font-bold text-txt-2 mb-1.5 uppercase tracking-wide">Giá trị mới <span class="text-red-500">*</span></label>
-                <input type="text" name="configValue" id="editValue" class="w-full rounded-xl border border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none p-3 text-sm font-bold text-txt transition-all shadow-inner" required>
-                <p id="editHelper" class="text-[10px] text-slate-500 mt-1.5 ml-1"></p>
-            </div>
+                                <label class="block text-xs font-bold text-txt-2 mb-1.5 uppercase tracking-wide">Giá trị mới <span class="text-red-500">*</span></label>
+                                <input type="text" name="configValue" id="editValue" class="w-full rounded-xl border border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none p-3 text-sm font-bold text-txt transition-all shadow-inner" required>
+                                <select id="editValueSelect" class="hidden w-full rounded-xl border border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/20 outline-none p-3 text-sm font-bold text-txt transition-all shadow-inner">
+                                    <option value="true">True (Bật)</option>
+                                    <option value="false">False (Tắt)</option>
+                                </select>
+                                <p id="editHelper" class="text-[10px] text-slate-500 mt-1.5 ml-1"></p>
+                            </div>
             
             <button type="submit" class="w-full py-3 bg-primary hover:bg-primary-dk text-white font-bold rounded-xl text-xs tracking-wider uppercase transition-all shadow-md active:scale-95 cursor-pointer mt-2">
                 <i class="fa-solid fa-save mr-1"></i> Lưu cấu hình
@@ -192,40 +221,86 @@
         document.getElementById(id).classList.add('hidden');
     }
     
+    function confirmToggleConfig(key, displayName, willEnable) {
+        const actionText = willEnable ? 'bật' : 'tắt';
+        const formId = 'toggle-form-' + key;
+        Swal.fire({
+            title: 'Xác nhận thay đổi?',
+            html: `Bạn có chắc chắn muốn <b>\${actionText}</b> cấu hình <b>\${displayName}</b> không?`,
+            icon: 'question',
+            showCancelButton: true,
+            confirmButtonColor: '#4d661c',
+            cancelButtonColor: '#94a3b8',
+            confirmButtonText: 'Đồng ý',
+            cancelButtonText: 'Hủy'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                document.getElementById(formId).submit();
+            } else {
+                const checkbox = document.querySelector(`#\${formId} input[type="checkbox"]`);
+                if (checkbox) {
+                    checkbox.checked = !willEnable;
+                }
+            }
+        });
+    }
+
     function openEditModal(btn) {
         const key = btn.dataset.key || '';
         const val = btn.dataset.value || '';
         const desc = btn.dataset.desc || '';
         const type = btn.dataset.type || '';
         document.getElementById('editKey').value = key;
-        document.getElementById('editValue').value = val;
         document.getElementById('editDesc').innerText = desc || 'Không có mô tả.';
         
+        const valueInput = document.getElementById('editValue');
+        const valueSelect = document.getElementById('editValueSelect');
         let helper = document.getElementById('editHelper');
-        if (key === 'platform_fee_rate') {
-            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập tỷ lệ phí, ví dụ 5 hoặc 0.05 đều được. Hệ thống sẽ lưu theo dạng thập phân (0.05 = 5%).';
-            document.getElementById('editValue').type = 'number';
-            document.getElementById('editValue').step = '0.01';
-        } else if (key === 'WEBSITE_LOGO_URL') {
-            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập URL ảnh hợp lệ hoặc đường dẫn tương đối bắt đầu bằng /.';
-            document.getElementById('editValue').type = 'text';
-            document.getElementById('editValue').removeAttribute('step');
-        } else if (key === 'gemini_api_key') {
-            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Có thể để trống để dùng biến môi trường GEMINI_API_KEY.';
-            document.getElementById('editValue').type = 'text';
-            document.getElementById('editValue').removeAttribute('step');
-        } else if (type === 'DECIMAL') {
-            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập số thập phân (ví dụ: 10.5 hoặc 5)';
-            document.getElementById('editValue').type = 'number';
-            document.getElementById('editValue').step = '0.01';
-        } else if (type === 'INT') {
-            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập số nguyên (ví dụ: 10)';
-            document.getElementById('editValue').type = 'number';
-            document.getElementById('editValue').step = '1';
+        
+        if (type === 'BOOLEAN') {
+            valueInput.classList.add('hidden');
+            valueInput.removeAttribute('name');
+            valueInput.required = false;
+            
+            valueSelect.classList.remove('hidden');
+            valueSelect.setAttribute('name', 'configValue');
+            valueSelect.value = val === 'true' ? 'true' : 'false';
+            
+            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Chọn chế độ Bật hoặc Tắt.';
         } else {
-            helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập văn bản hoặc đường dẫn (URL)';
-            document.getElementById('editValue').type = 'text';
-            document.getElementById('editValue').removeAttribute('step');
+            valueSelect.classList.add('hidden');
+            valueSelect.removeAttribute('name');
+            
+            valueInput.classList.remove('hidden');
+            valueInput.setAttribute('name', 'configValue');
+            valueInput.value = val;
+            valueInput.required = true;
+            
+            if (key === 'platform_fee_rate') {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập tỷ lệ phí, ví dụ 5 hoặc 0.05 đều được. Hệ thống sẽ lưu theo dạng thập phân (0.05 = 5%).';
+                valueInput.type = 'number';
+                valueInput.step = '0.01';
+            } else if (key === 'WEBSITE_LOGO_URL') {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập URL ảnh hợp lệ hoặc đường dẫn tương đối bắt đầu bằng /.';
+                valueInput.type = 'text';
+                valueInput.removeAttribute('step');
+            } else if (key === 'gemini_api_key') {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Có thể để trống để dùng biến môi trường GEMINI_API_KEY.';
+                valueInput.type = 'text';
+                valueInput.removeAttribute('step');
+            } else if (type === 'DECIMAL') {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập số thập phân (ví dụ: 10.5 hoặc 5)';
+                valueInput.type = 'number';
+                valueInput.step = '0.01';
+            } else if (type === 'INT') {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập số nguyên (ví dụ: 10)';
+                valueInput.type = 'number';
+                valueInput.step = '1';
+            } else {
+                helper.innerHTML = '<i class="fa-solid fa-circle-info text-blue-500 mr-1"></i> Nhập văn bản hoặc đường dẫn (URL)';
+                valueInput.type = 'text';
+                valueInput.removeAttribute('step');
+            }
         }
         
         openModal('editModal');

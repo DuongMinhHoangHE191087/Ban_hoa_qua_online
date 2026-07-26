@@ -33,6 +33,7 @@ public class ProductService {
      */
     public PagedResultDTO getProductList(int page, String keyword, Integer categoryId,
                                           BigDecimal minPrice, BigDecimal maxPrice) throws SQLException {
+        productDAO.autoDeactivateExpiredProducts();
         if (page < 1) page = 1;
 
         int pageSize = AppConfig.PAGE_SIZE_PRODUCTS;
@@ -93,6 +94,7 @@ public class ProductService {
         if (ownerId <= 0) {
             throw new IllegalArgumentException("ownerId không hợp lệ.");
         }
+        productDAO.autoDeactivateExpiredProducts();
         return productDAO.findByOwner(ownerId);
     }
 
@@ -100,6 +102,7 @@ public class ProductService {
         if (ownerId <= 0) {
             throw new IllegalArgumentException("ownerId không hợp lệ.");
         }
+        productDAO.autoDeactivateExpiredProducts();
         int validatedPage = util.PaginationUtil.validatePage(page);
         int validatedPageSize = util.PaginationUtil.validatePageSize(pageSize);
         List<Product> items = productDAO.findByOwner(ownerId, validatedPage, validatedPageSize, keyword, categoryId, approvalStatus, sellStatus, stockStatus);

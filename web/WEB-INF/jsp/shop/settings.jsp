@@ -94,12 +94,9 @@
                                                 <input type="number" id="lowStockThreshold" name="lowStockThreshold"
                                                     class="form-input w-24 text-center font-bold text-lg"
                                                     value="${shopProfile.lowStockThreshold > 0 ? shopProfile.lowStockThreshold : 10}"
-                                                    required min="1" max="1000" oninput="syncInput('lowStock')">
+                                                    required min="1" max="500" oninput="syncInput('lowStock')">
                                                 <span class="text-xs text-txt-3 whitespace-nowrap">đơn vị</span>
                                             </div>
-                                        </div>
-                                        <div class="flex justify-between text-[10px] text-txt-3 mt-1 px-1">
-                                            <span>1</span><span>100</span><span>200</span><span>300</span><span>500</span>
                                         </div>
                                     </div>
 
@@ -155,10 +152,6 @@
                                                     required min="1" max="90" oninput="syncInput('expiry')">
                                                 <span class="text-xs text-[#94a3b8] whitespace-nowrap">ngày</span>
                                             </div>
-                                        </div>
-                                        <div class="flex justify-between text-[10px] text-[#94a3b8] mt-1 px-1">
-                                            <span>1 ngày</span><span>30 ngày</span><span>60 ngày</span><span>90
-                                                ngày</span>
                                         </div>
                                     </div>
 

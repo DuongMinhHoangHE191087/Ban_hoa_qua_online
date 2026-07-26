@@ -124,6 +124,41 @@ public class AuthService {
     }
 
     /**
+     * Tạo tài khoản Delivery Staff bởi Admin.
+     * Tự động sinh mật khẩu tạm và gửi qua email.
+     */
+    public User createDeliveryStaff(String fullName, String email, String phone) throws Exception {
+        // Validate input
+        fullName = ValidationUtil.requireNotBlank(fullName, "Họ và tên");
+        email = ValidationUtil.requireValidEmail(email, "Email");
+        phone = ValidationUtil.requireValidPhone(phone, "Số điện thoại");
+
+        // Check trùng lặp
+        if (userDAO.findByEmail(email) != null) {
+            throw new Exception("Địa chỉ email đã tồn tại trong hệ thống.");
+        }
+        if (userDAO.findByPhone(phone) != null) {
+            throw new Exception("Số điện thoại đã tồn tại trong hệ thống.");
+        }
+
+        // Sinh mật khẩu tạm (8 ký tự)
+        String tempPassword = UUID.randomUUID().toString().substring(0, 8);
+        String hashedPass = HashUtil.hashPassword(tempPassword);
+
+        // Lưu user với role DELIVERY, trạng thái ACTIVE, đã xác minh email
+        int insertedId = userDAO.saveNewCustomer(fullName, email, hashedPass, phone, AppConfig.ROLE_DELIVERY, AppConfig.ACCOUNT_STATUS_ACTIVE, true);
+        if (insertedId > 0) {
+            User createdUser = userDAO.findByEmail(email);
+            if (createdUser != null) {
+                // Gửi email chứa mật khẩu tạm
+                emailService.sendDeliveryStaffWelcomeEmail(email, fullName, tempPassword);
+                return createdUser;
+            }
+        }
+        throw new Exception("Lỗi hệ thống khi tạo tài khoản giao hàng.");
+    }
+
+    /**
      * TODO: Implement — xem SRS / use case tương ứng
      */
     public model.entity.auth.User login(String identifier, String password) throws SQLException, Exception {

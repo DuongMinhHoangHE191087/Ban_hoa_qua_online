@@ -70,9 +70,14 @@ public class DeliveryTripDAO extends BaseDAO {
     }
 
     public void assignShipper(int tripId, int shipperId) throws SQLException {
+        try (Connection conn = getConnection()) {
+            assignShipper(conn, tripId, shipperId);
+        }
+    }
+
+    public void assignShipper(Connection conn, int tripId, int shipperId) throws SQLException {
         String sql = "UPDATE delivery_trips SET shipper_id = ?, status = 'ASSIGNED', updated_at = GETDATE() WHERE trip_id = ?";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, shipperId);
             ps.setInt(2, tripId);
             ps.executeUpdate();

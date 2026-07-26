@@ -308,11 +308,7 @@
             sessionStorage.removeItem(AI_HISTORY_KEY);
             sessionStorage.removeItem('aiFilteredProductIds');
             const log = document.getElementById('ai-message-log');
-            // Xóa tất cả tin nhắn, giữ lại lời chào đầu tiên
-            while (log.children.length > 1) log.removeChild(log.lastChild);
-            // Nếu không còn phần tử nào (log rỗng), thêm lại lời chào
-            if (log.children.length === 0) renderWelcomeMessage();
-            log.scrollTop = 0;
+                        log.scrollTop = 0;
             // B7: Nếu đang ở trang sản phẩm và còn AI context, thoát về danh sách chuẩn
             if (shouldResetProductList && typeof resetAiProductFilter === 'function') {
                 resetAiProductFilter();
@@ -372,16 +368,60 @@
             }
         });
 
-        function formatMarkdown(text) {
+        function cleanAiReply(text) {
             if (!text) return "";
             return text
+                .replace(/```json[\s\S]*?```/gi, "")
+                .replace(/```[\s\S]*?```/gi, "")
+                .replace(/\{\s*"suggestedProductIds"[\s\S]*?\}/gi, "")
+                .replace(/\b(ID|mã|sản phẩm ID|Mã SP)[:\s]*#?\d+\b/gi, "")
+                .replace(/  +/g, " ")
+                .trim();
+        }
+
+        function formatMarkdown(text) {
+            if (!text) return "";
+            const cleanedText = cleanAiReply(text);
+            
+            // Basic HTML escaping
+            let html = cleanedText
                 .replace(/&/g, "&amp;")
                 .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
+                .replace(/>/g, "&gt;");
+
+            // Bold, Italic, Inline code
+            html = html
                 .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
                 .replace(/\*(.*?)\*/g, "<em>$1</em>")
-                .replace(/`([^`]+)`/g, "<code class='bg-slate-100 text-red-600 px-1 rounded font-mono text-[10px]'>$1</code>")
-                .replace(/\n/g, "<br>");
+                .replace(/`([^`]+)`/g, "<code class='bg-slate-100 text-emerald-700 px-1 rounded font-mono text-[10px]'>$1</code>");
+
+            // Process bullet lists (lines starting with * or - or •)
+            const lines = html.split('\n');
+            let formattedLines = [];
+            let inList = false;
+
+            for (let i = 0; i < lines.length; i++) {
+                let line = lines[i].trim();
+                const listMatch = line.match(/^[\*\-\•]\s+(.*)/);
+                if (listMatch) {
+                    if (!inList) {
+                        formattedLines.push('<ul class="list-disc list-inside space-y-1.5 my-2 pl-1">');
+                        inList = true;
+                    }
+                    formattedLines.push('<li>' + listMatch[1] + '</li>');
+                } else {
+                    if (inList) {
+                        formattedLines.push('</ul>');
+                        inList = false;
+                    }
+                    formattedLines.push(line);
+                }
+            }
+            if (inList) {
+                formattedLines.push('</ul>');
+            }
+
+            return formattedLines.join('<br>').replace(/(<\/ul>)<br>/g, '$1');
         }
 
         function unwrapApiEnvelope(data) {
@@ -614,7 +654,7 @@
                         return;
                     }
 
-                    const reply = payload.reply || streamedReply || payload.message || 'Mình chưa nhận được câu trả lời hợp lệ từ AI. Vui lòng thử lại.';
+                    const reply = cleanAiReply(payload.reply || streamedReply || payload.message || 'Mình chưa nhận được câu trả lời hợp lệ từ AI. Vui lòng thử lại.');
                     const products = Array.isArray(payload.products) ? payload.products : [];
                     const suggestedProductIds = Array.isArray(payload.suggestedProductIds)
                         ? payload.suggestedProductIds
@@ -767,23 +807,17 @@
                     productsHtml += '</div>';
 
                     // Save selected product IDs to sessionStorage to maintain filter state
-                    // only when the current route is the AI-scoped product list.
                     if (suggestedIds && suggestedIds.length > 0) {
-                        const shouldApplyAiFilter = saveToHistory || isAiScopedProductListPage();
-                        if (shouldApplyAiFilter) {
-                            sessionStorage.setItem('aiFilteredProductIds', JSON.stringify(suggestedIds));
-
-                            if (typeof applyClientFilters === 'function') {
-                                applyClientFilters();
-                            }
-                        } else {
-                            const ctxPath = getAppContextPath();
-                            productsHtml += '<div class="mt-3 text-center">' +
-                                '<a href="' + ctxPath + '/products?fromAi=true&suggestedIds=' + encodeURIComponent(suggestedIds.join(',')) + '" class="inline-flex items-center gap-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-bold text-[10px] px-3.5 py-2 rounded-full transition-all shadow-sm">' +
-                                    '<span class="material-symbols-outlined text-[14px]">open_in_new</span> Xem danh sách trên trang Sản phẩm' +
-                                '</a>' +
-                            '</div>';
+                        sessionStorage.setItem('aiFilteredProductIds', JSON.stringify(suggestedIds));
+                        if (typeof applyClientFilters === 'function') {
+                            applyClientFilters();
                         }
+                        const ctxPath = getAppContextPath();
+                        productsHtml += '<div class="mt-3 text-center">' +
+                            '<a href="' + ctxPath + '/products?fromAi=true&suggestedIds=' + encodeURIComponent(suggestedIds.join(',')) + '" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] px-4 py-2 rounded-full transition-all shadow-md hover:scale-105 active:scale-95 no-underline">' +
+                                '<span class="material-symbols-outlined text-[15px]">open_in_new</span> Xem danh sách đầy đủ trên trang Sản phẩm' +
+                            '</a>' +
+                        '</div>';
                     }
                 } else if (suggestedIds && suggestedIds.length > 0) {
                     productsHtml = '<div class="mt-3 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-on-surface-variant">' +

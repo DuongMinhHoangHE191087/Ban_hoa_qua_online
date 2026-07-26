@@ -120,6 +120,16 @@
                                                     class="w-full px-4 py-2.5 border border-border rounded-xl text-sm focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all">
                                             </div>
 
+                                            <div class="mb-4" id="batchGroup" style="display: none;">
+                                                <label class="block text-xs font-bold text-txt-2 mb-2" for="batchId">
+                                                    Chọn lô hàng để giảm <span class="text-red-500">*</span>
+                                                </label>
+                                                <select name="batchId" id="batchId"
+                                                    class="w-full px-4 py-2.5 border border-border rounded-xl text-sm bg-white focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/10 transition-all">
+                                                    <option value="" disabled selected>-- Chọn lô hàng --</option>
+                                                </select>
+                                            </div>
+
                                             <div class="mb-4" id="expiryGroup">
                                                 <label class="block text-xs font-bold text-txt-2 mb-2" for="expiresAt">
                                                     Ngày hết hạn <span class="text-txt-3 font-normal">(Tùy chọn)</span>
@@ -433,8 +443,16 @@
                             </div>
                         </div>
 
+                        <script id="batchesJsonData" type="application/json">
+                            ${not empty batchesJson ? batchesJson : '{}'}
+                        </script>
                         <script>
                             window.csrfToken = '${sessionScope._csrfToken}';
+                            try {
+                                window.batchesByVariant = JSON.parse(document.getElementById('batchesJsonData').textContent || '{}');
+                            } catch (e) {
+                                window.batchesByVariant = {};
+                            }
 
                             window.toggleBatches = function(variantId) {
                                 const row = document.getElementById('batches-row-' + variantId);
@@ -497,7 +515,7 @@
                                         const formattedMaxDate = maxDate.getDate().toString().padStart(2, '0') + '/' + 
                                                                  (maxDate.getMonth() + 1).toString().padStart(2, '0') + '/' + 
                                                                  maxDate.getFullYear();
-                                        expiryHint.innerHTML = `<i class="fa-solid fa-circle-info mr-1 text-primary"></i>Hạn sử dụng tối đa của sản phẩm này: <strong>${shelfLifeDays} ngày</strong> (đến ngày <strong>${formattedMaxDate}</strong>)`;
+                                        expiryHint.innerHTML = '<i class="fa-solid fa-circle-info mr-1 text-primary"></i>Hạn sử dụng tối đa của sản phẩm này: <strong>' + shelfLifeDays + ' ngày</strong> (đến ngày <strong>' + formattedMaxDate + '</strong>)';
                                     } else {
                                         expiresInput.removeAttribute('max');
                                         expiryHint.innerHTML = '';
@@ -509,6 +527,37 @@
                                     updateMaxExpiry();
                                 }
 
+                                const batchGroup = document.getElementById('batchGroup');
+                                const batchSelect = document.getElementById('batchId');
+
+                                function populateBatches() {
+                                    if (!variantSelect || !batchSelect) return;
+                                    const variantId = variantSelect.value;
+                                    batchSelect.innerHTML = '<option value="" disabled selected>-- Chọn lô hàng --</option>';
+                                    if (!variantId) return;
+
+                                    const batches = window.batchesByVariant[variantId];
+                                    if (batches && batches.length > 0) {
+                                        batches.forEach(function (b) {
+                                            const opt = document.createElement('option');
+                                            opt.value = b.logId;
+                                            var label = (b.logId && b.logId > 0) ? ('Lô #' + b.logId) : 'Lô kho hiện tại';
+                                            opt.textContent = label + ' - HSD: ' + b.expiresAt + ' (Còn lại: ' + b.remainingQuantity + ')';
+                                            batchSelect.appendChild(opt);
+                                        });
+                                    } else {
+                                        const opt = document.createElement('option');
+                                        opt.value = "";
+                                        opt.textContent = "Không có lô hàng khả dụng (Hết hàng)";
+                                        opt.disabled = true;
+                                        batchSelect.appendChild(opt);
+                                    }
+                                }
+
+                                if (variantSelect) {
+                                    variantSelect.addEventListener('change', populateBatches);
+                                }
+
                                 function updateFormLayout() {
                                     if (!actionTypeSelect || !submitBtnText || !submitBtnIcon) return;
                                     const v = actionTypeSelect.value;
@@ -517,6 +566,11 @@
                                         submitBtnIcon.className = 'fa-solid fa-circle-arrow-down text-base';
                                         if (expiryGroup) expiryGroup.style.display = 'block';
                                         if (expiresInput) expiresInput.disabled = false;
+                                        if (batchGroup) batchGroup.style.display = 'none';
+                                        if (batchSelect) {
+                                            batchSelect.required = false;
+                                            batchSelect.disabled = true;
+                                        }
                                         if (noteInput) {
                                             noteInput.placeholder = 'Ghi chú (ví dụ: Nhập hàng từ nhà cung cấp A)';
                                             noteInput.required = false;
@@ -530,6 +584,12 @@
                                             expiresInput.disabled = true;
                                             expiresInput.value = '';
                                         }
+                                        if (batchGroup) batchGroup.style.display = 'block';
+                                        if (batchSelect) {
+                                            batchSelect.required = true;
+                                            batchSelect.disabled = false;
+                                        }
+                                        populateBatches();
                                         if (noteInput) {
                                             noteInput.placeholder = 'Nhập lý do giảm kho (thối hỏng, hết hạn, hao hụt...) *';
                                             noteInput.required = true;
@@ -588,6 +648,32 @@
                                                     alert('Ngày hết hạn vượt quá hạn sử dụng tối đa cho phép.');
                                                 }
                                                 return false;
+                                            }
+                                        }
+
+                                        // Chặn số lượng giảm vượt quá tồn còn lại của lô khi giảm kho
+                                        const quantityInput = document.getElementById('quantity');
+                                        if (actionTypeSelect && actionTypeSelect.value === 'REDUCE' && quantityInput) {
+                                            const qtyVal = parseInt(quantityInput.value) || 0;
+                                            const variantId = variantSelect ? variantSelect.value : null;
+                                            const batchIdVal = batchSelect ? batchSelect.value : null;
+                                            if (variantId && batchIdVal && window.batchesByVariant[variantId]) {
+                                                const batches = window.batchesByVariant[variantId];
+                                                const selectedBatch = batches.find(function(b) { return String(b.logId) === String(batchIdVal); });
+                                                if (selectedBatch && qtyVal > selectedBatch.remainingQuantity) {
+                                                    e.preventDefault();
+                                                    if (window.Swal) {
+                                                        Swal.fire({
+                                                            icon: 'error',
+                                                            title: 'Vượt quá tồn kho lô',
+                                                            text: 'Số lượng giảm (' + qtyVal + ') vượt quá số lượng tồn còn lại của lô được chọn (chỉ còn ' + selectedBatch.remainingQuantity + ' sản phẩm).',
+                                                            confirmButtonColor: '#4d661c'
+                                                        });
+                                                    } else {
+                                                        alert('Số lượng giảm (' + qtyVal + ') vượt quá số lượng tồn còn lại của lô (chỉ còn ' + selectedBatch.remainingQuantity + ' sản phẩm).');
+                                                    }
+                                                    return false;
+                                                }
                                             }
                                         }
                                     });

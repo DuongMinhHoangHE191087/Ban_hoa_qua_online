@@ -195,6 +195,7 @@ CREATE TABLE inventory_logs (
     note NVARCHAR(300) NULL,
     expires_at DATE NULL,
     is_expired BIT NOT NULL DEFAULT 0,
+    remaining_quantity INT NULL,
     changed_at DATETIME NOT NULL DEFAULT GETDATE()
 );
 
@@ -288,7 +289,8 @@ CREATE TABLE order_items (
     subtotal                 DECIMAL(14,2) NOT NULL,
     -- SNAPSHOT ĐÓNG GÓI (bất biến theo thời gian)
     packaging_label_snapshot NVARCHAR(100) NULL,
-    packaging_price_snapshot DECIMAL(12,2) NOT NULL DEFAULT 0
+    packaging_price_snapshot DECIMAL(12,2) NOT NULL DEFAULT 0,
+    CONSTRAINT UQ_order_items_order_item_order UNIQUE (order_item_id, order_id)
 );
 
 CREATE TABLE order_promotions (
@@ -307,7 +309,7 @@ CREATE TABLE order_promotions (
 CREATE TABLE return_requests (
     return_request_id INT IDENTITY(1,1) PRIMARY KEY,
     order_id INT NOT NULL FOREIGN KEY REFERENCES orders(order_id) ON DELETE CASCADE,
-    order_item_id INT NULL FOREIGN KEY (order_item_id) REFERENCES dbo.order_items(order_item_id),
+    order_item_id INT NULL,
     customer_id INT NOT NULL FOREIGN KEY REFERENCES users(user_id),
     request_type NVARCHAR(20) NOT NULL CHECK (request_type IN ('CANCEL','RETURN','EXCHANGE')),
     reason_code NVARCHAR(50) NOT NULL CHECK (reason_code IN ('WRONG_ITEM','DAMAGED','MISSING_ITEM','LATE_DELIVERY','NOT_AS_DESCRIBED','OTHER')),
@@ -322,8 +324,9 @@ CREATE TABLE return_requests (
     decision_reason NVARCHAR(500) NULL,
     resolved_at DATETIME NULL,
     created_at DATETIME NOT NULL DEFAULT GETDATE(),
-    updated_at DATETIME NOT NULL DEFAULT GETDATE()
-     
+    updated_at DATETIME NOT NULL DEFAULT GETDATE(),
+    CONSTRAINT FK_return_requests_order_items FOREIGN KEY (order_item_id, order_id)
+        REFERENCES dbo.order_items(order_item_id, order_id)
 );
 
 CREATE TABLE shop_settlements (

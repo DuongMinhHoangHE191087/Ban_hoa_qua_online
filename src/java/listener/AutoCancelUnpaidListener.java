@@ -17,7 +17,7 @@ import java.util.logging.Logger;
  * AutoCancelUnpaidListener — Background job that runs every 2 minutes to:
  *
  * (a) INV-01: Cancel orders stuck in PENDING_PAYMENT for more than 15 minutes
- *     and release their reserved stock back via OrderService.
+ *     and restore their reserved stock back via OrderService.
  * (b) SHOP_ACCEPT_TIMEOUT: Cancel CONFIRMED orders whose shop_acceptance_deadline
  *     has passed (delegates to OrderService.autoCancelUnacceptedOrders).
  *
@@ -87,7 +87,7 @@ public class AutoCancelUnpaidListener implements ServletContextListener {
 
     /**
      * INV-01 — Queries PENDING_PAYMENT orders older than {@value #UNPAID_EXPIRY_MINUTES} minutes,
-     * cancels each one and releases reserved stock via OrderService.
+     * cancels each one and restores reserved stock via OrderService.
      */
     private void cancelExpiredUnpaidOrders() throws SQLException {
         List<Order> expired = orderService.findExpiredPendingPaymentOrders(UNPAID_EXPIRY_MINUTES);

@@ -298,7 +298,7 @@ public class AiSearchService {
             processGeminiStreamEvent(eventBuffer.toString(), replyBuilder, deltaConsumer);
         }
 
-        String reply = normalizeReply(replyBuilder.toString());
+        String reply = cleanAiReply(normalizeReply(replyBuilder.toString()));
         List<Product> finalProducts = selectRelevantProducts(
                 userMessage,
                 snapshot.getActiveProducts(),
@@ -404,7 +404,7 @@ public class AiSearchService {
                 + "4. Sắp xếp suggestedProductIds từ phù hợp nhất đến ít phù hợp hơn.\n"
                 + "5. Reply phải thân thiện, ngắn gọn, tự nhiên, dễ mua hàng, và mô tả rõ lý do gợi ý.\n"
                 + "6. Nếu câu hỏi ngoài phạm vi trái cây/thực phẩm sạch/bảo quản/chọn hàng, hãy từ chối lịch sự.\n"
-                + "7. Không nhắc ID trong reply, chỉ nhắc trong suggestedProductIds.\n\n"
+                + "7. TUYỆT ĐỐI KHÔNG hiển thị hoặc đề cập ID (ví dụ: 'ID 12', 'ID: 5', '#1',...) trong văn bản reply gửi người dùng. ID chỉ được trả về trong mảng suggestedProductIds JSON.\n\n"
                 + catalogBuilder;
 
         Map<String, Object> payload = new HashMap<>();
@@ -463,7 +463,7 @@ public class AiSearchService {
                 + "4. Sắp xếp suggestedProductIds từ phù hợp nhất đến ít phù hợp hơn.\n"
                 + "5. Reply phải thân thiện, ngắn gọn, tự nhiên, dễ mua hàng, và mô tả rõ lý do gợi ý.\n"
                 + "6. Nếu câu hỏi ngoài phạm vi trái cây/thực phẩm sạch/bảo quản/chọn hàng, hãy từ chối lịch sự.\n"
-                + "7. Không nhắc ID trong reply, chỉ nhắc trong suggestedProductIds.\n"
+                + "7. TUYỆT ĐỐI KHÔNG hiển thị hoặc đề cập ID (ví dụ: 'ID 12', 'ID: 5', '#1',...) trong văn bản reply gửi người dùng. ID chỉ được trả về trong mảng suggestedProductIds JSON.\n"
                 + "Hãy trả lời tự nhiên như đang trò chuyện trực tiếp với khách hàng.\n\n"
                 + catalogBuilder;
 
@@ -665,9 +665,22 @@ public class AiSearchService {
         return text.isEmpty() ? null : text;
     }
 
+    private String cleanAiReply(String rawText) {
+        if (rawText == null || rawText.isBlank()) {
+            return rawText;
+        }
+        return rawText.replaceAll("(?i)\\b(ID|mã|sản phẩm ID|Mã SP)[:\\s]*#?\\d+\\b", "")
+                      .replaceAll("(?i)\\b#\\d+\\b", "")
+                      .replaceAll("  +", " ")
+                      .trim();
+    }
+
     private String normalizeReply(Object value) {
         String reply = normalizeText(value);
-        return reply != null ? reply : "Mình chưa nhận được câu trả lời hợp lệ từ AI. Vui lòng thử lại.";
+        if (reply != null) {
+            reply = cleanAiReply(reply);
+        }
+        return reply != null && !reply.isBlank() ? reply : "Mình chưa nhận được câu trả lời hợp lệ từ AI. Vui lòng thử lại.";
     }
 
     private List<Integer> extractSuggestedProductIds(Object rawIds) {

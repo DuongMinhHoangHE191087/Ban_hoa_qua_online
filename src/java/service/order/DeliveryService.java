@@ -134,7 +134,7 @@ public class DeliveryService {
                         InventoryService inventoryService = new InventoryService();
                         for (model.entity.order.OrderItem item : items) {
                             if (item.getVariantId() != null) {
-                                inventoryService.release(conn, item.getVariantId(), item.getQuantity(), order.getOrderId(), staffId);
+                                inventoryService.restore(conn, item.getVariantId(), item.getQuantity(), order.getOrderId(), staffId);
                             }
                         }
 
@@ -358,11 +358,29 @@ public class DeliveryService {
             throw new IllegalArgumentException("Không tìm thấy thông tin giao hàng.");
         }
         if (del.getStaffId() != null) {
-            throw new IllegalArgumentException("Đơn giao hàng này đã được shipper khác nhận trước đó.");
+            throw new IllegalArgumentException("Đơn hàng này đã được tài xế khác nhận trước đó!");
         }
-        boolean claimed = deliveryDAO.claimDelivery(deliveryId, staffId);
-        if (!claimed) {
-            throw new IllegalArgumentException("Nhận đơn hàng thất bại. Đơn hàng này có thể đã được shipper khác nhận.");
+        if (!"ASSIGNED".equals(del.getStatus())) {
+            throw new IllegalArgumentException("Trạng thái đơn hàng không khả dụng để nhận.");
+        }
+
+        try (Connection conn = orderDAO.openConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                boolean claimed = deliveryDAO.claimDelivery(conn, deliveryId, staffId);
+                if (!claimed) {
+                    throw new IllegalArgumentException("Đơn hàng này đã được tài xế khác nhận trước đó!");
+                }
+                if (del.getDeliveryTripId() != null) {
+                    deliveryTripDAO.assignShipper(conn, del.getDeliveryTripId(), staffId);
+                }
+                conn.commit();
+            } catch (SQLException | RuntimeException ex) {
+                conn.rollback();
+                throw ex;
+            } finally {
+                conn.setAutoCommit(true);
+            }
         }
     }
 }

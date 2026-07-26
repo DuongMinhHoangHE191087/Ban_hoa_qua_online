@@ -36,8 +36,8 @@ public class InventoryDAO extends BaseDAO {
      * Saves an inventory log entry using an active transactional connection.
      */
     public int save(Connection conn, InventoryLog log) throws SQLException {
-        String sql = "INSERT INTO inventory_logs (variant_id, changed_by, change_type, quantity_delta, quantity_after, note, expires_at, is_expired, changed_at) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO inventory_logs (variant_id, changed_by, change_type, quantity_delta, quantity_after, note, expires_at, is_expired, changed_at, remaining_quantity) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement ps = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             ps.setInt(1, log.getVariantId());
             ps.setInt(2, log.getChangedBy());
@@ -60,6 +60,7 @@ public class InventoryDAO extends BaseDAO {
             } else {
                 ps.setTimestamp(9, new Timestamp(System.currentTimeMillis()));
             }
+            ps.setInt(10, log.getRemainingQuantity());
 
             ps.executeUpdate();
             try (ResultSet rs = ps.getGeneratedKeys()) {
@@ -175,6 +176,13 @@ public class InventoryDAO extends BaseDAO {
         }
         log.setExpired(rs.getBoolean("is_expired"));
 
+        int rem = rs.getInt("remaining_quantity");
+        if (!rs.wasNull()) {
+            log.setRemainingQuantity(rem);
+        } else {
+            log.setRemainingQuantity(log.getQuantityDelta());
+        }
+
         Timestamp ts = rs.getTimestamp("changed_at");
         if (ts != null) {
             log.setChangedAt(ts.toLocalDateTime());
@@ -213,11 +221,11 @@ public class InventoryDAO extends BaseDAO {
     /**
      * Lấy danh sách lô hàng nhập kho còn hiệu lực (MANUAL_ADJUST, delta > 0, is_expired = 0)
      * kèm thông tin sản phẩm, phân loại và ngày hết hạn — dùng cho bảng Tồn kho của Shop Owner.
-     * Chỉ hiển thị lô chưa qua ngày hết hạn (expires_at > TODAY hoặc expires_at IS NULL).
+     * Chỉ hiển thị lô chưa qua ngày hết hạn (expires_at >= TODAY hoặc expires_at IS NULL).
      */
     public List<InventoryLog> findActiveBatchesByOwner(int ownerId) throws SQLException {
         List<InventoryLog> list = new ArrayList<>();
-        String sql = "SELECT il.log_id, il.variant_id, il.change_type, il.quantity_delta, il.quantity_after, "
+        String sql = "SELECT il.log_id, il.variant_id, il.change_type, il.quantity_delta, il.quantity_after, il.remaining_quantity, "
                 + "       il.expires_at, il.is_expired, il.changed_at, il.note, il.changed_by, "
                 + "       p.name AS product_name, pv.variant_label, u.full_name AS changed_by_name "
                 + "FROM inventory_logs il "
@@ -228,7 +236,8 @@ public class InventoryDAO extends BaseDAO {
                 + "  AND il.change_type = 'MANUAL_ADJUST' "
                 + "  AND il.quantity_delta > 0 "
                 + "  AND il.is_expired = 0 "
-                + "  AND (il.expires_at IS NULL OR il.expires_at > CAST(GETDATE() AS DATE)) "
+                + "  AND ISNULL(il.remaining_quantity, il.quantity_delta) > 0 "
+                + "  AND (il.expires_at IS NULL OR il.expires_at >= CAST(GETDATE() AS DATE)) "
                 + "ORDER BY il.expires_at ASC, il.changed_at DESC";
         try (Connection conn = getConnection();
                 PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -247,7 +256,7 @@ public class InventoryDAO extends BaseDAO {
         if (limit <= 0) {
             return list;
         }
-        String sql = "SELECT il.log_id, il.variant_id, il.change_type, il.quantity_delta, il.quantity_after, "
+        String sql = "SELECT il.log_id, il.variant_id, il.change_type, il.quantity_delta, il.quantity_after, il.remaining_quantity, "
                 + "       il.expires_at, il.is_expired, il.changed_at, il.note, il.changed_by, "
                 + "       p.name AS product_name, pv.variant_label, u.full_name AS changed_by_name "
                 + "FROM inventory_logs il "
@@ -258,7 +267,8 @@ public class InventoryDAO extends BaseDAO {
                 + "  AND il.change_type = 'MANUAL_ADJUST' "
                 + "  AND il.quantity_delta > 0 "
                 + "  AND il.is_expired = 0 "
-                + "  AND (il.expires_at IS NULL OR il.expires_at > CAST(GETDATE() AS DATE)) "
+                + "  AND ISNULL(il.remaining_quantity, il.quantity_delta) > 0 "
+                + "  AND (il.expires_at IS NULL OR il.expires_at >= CAST(GETDATE() AS DATE)) "
                 + "ORDER BY il.expires_at ASC, il.changed_at DESC "
                 + "OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY";
         try (Connection conn = getConnection();
@@ -303,8 +313,8 @@ public class InventoryDAO extends BaseDAO {
     public InventoryLog findOldestActiveBatchForVariant(Connection conn, int variantId) throws SQLException {
         String sql = "SELECT TOP 1 * FROM inventory_logs "
                 + "WHERE variant_id = ? AND change_type = 'MANUAL_ADJUST' AND quantity_delta > 0 "
-                + "AND is_expired = 0 "
-                + "AND (expires_at IS NULL OR expires_at > CAST(GETDATE() AS DATE)) "
+                + "AND is_expired = 0 AND ISNULL(remaining_quantity, quantity_delta) > 0 "
+                + "AND (expires_at IS NULL OR expires_at >= CAST(GETDATE() AS DATE)) "
                 + "ORDER BY "
                 + "  CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END ASC, " // lô có HH lên trước
                 + "  expires_at ASC, "                                       // HH sớm nhất
@@ -321,12 +331,93 @@ public class InventoryDAO extends BaseDAO {
     }
 
     /**
+     * Lấy danh sách các lô hàng đang hoạt động của một variant theo thứ tự FIFO (expires_at ASC, changed_at ASC).
+     */
+    public List<InventoryLog> findActiveBatchesForVariant(Connection conn, int variantId) throws SQLException {
+        List<InventoryLog> list = new ArrayList<>();
+        String sql = "SELECT * FROM inventory_logs "
+                + "WHERE variant_id = ? AND change_type = 'MANUAL_ADJUST' AND quantity_delta > 0 "
+                + "AND is_expired = 0 AND ISNULL(remaining_quantity, quantity_delta) > 0 "
+                + "AND (expires_at IS NULL OR expires_at >= CAST(GETDATE() AS DATE)) "
+                + "ORDER BY "
+                + "  CASE WHEN expires_at IS NULL THEN 1 ELSE 0 END ASC, " // lô có HH lên trước
+                + "  expires_at ASC, "                                       // HH sớm nhất
+                + "  changed_at ASC";                                        // nhập sớm nhất nếu bằng nhau
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, variantId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    list.add(mapRow(rs));
+                }
+            }
+        }
+        return list;
+    }
+
+    /**
+     * Cập nhật số lượng còn lại của lô hàng trong transaction.
+     */
+    public void updateRemainingQuantity(Connection conn, int logId, int newRemainingQuantity) throws SQLException {
+        String sql = "UPDATE inventory_logs SET remaining_quantity = ? WHERE log_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, newRemainingQuantity);
+            ps.setInt(2, logId);
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Tìm một lô hàng hoạt động cụ thể theo ID.
+     */
+    public InventoryLog findActiveBatchById(Connection conn, int logId) throws SQLException {
+        String sql = "SELECT * FROM inventory_logs WHERE log_id = ? AND change_type = 'MANUAL_ADJUST' AND quantity_delta > 0 AND is_expired = 0";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, logId);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs);
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
      * Đánh dấu log nhập kho đã được xử lý hết hạn.
      */
     public void markLogExpired(Connection conn, int logId) throws SQLException {
-        String sql = "UPDATE inventory_logs SET is_expired = 1 WHERE log_id = ?";
+        String sql = "UPDATE inventory_logs SET is_expired = 1, remaining_quantity = 0 WHERE log_id = ?";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, logId);
+            ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Lấy chuỗi note của ORDER_RESERVE
+     */
+    public String findReserveLogNote(Connection conn, int orderId, int variantId) throws SQLException {
+        String sql = "SELECT TOP 1 note FROM inventory_logs WHERE change_type = 'ORDER_RESERVE' AND variant_id = ? AND note LIKE ? ORDER BY log_id DESC";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, variantId);
+            ps.setString(2, "Giữ hàng cho đơn hàng #" + orderId + "%");
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return rs.getString("note");
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Cộng lại số lượng vào remaining_quantity của một lô.
+     */
+    public void incrementRemainingQuantity(Connection conn, int logId, int incrementQty) throws SQLException {
+        String sql = "UPDATE inventory_logs SET remaining_quantity = ISNULL(remaining_quantity, 0) + ? WHERE log_id = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setInt(1, incrementQty);
+            ps.setInt(2, logId);
             ps.executeUpdate();
         }
     }

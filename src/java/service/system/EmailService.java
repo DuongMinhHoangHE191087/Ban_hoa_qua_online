@@ -159,6 +159,25 @@ public class EmailService {
         return sendHtml(toEmail, subject, html);
     }
 
+    /**
+     * Gửi email chào mừng và cấp mật khẩu tạm cho Delivery Staff.
+     */
+    public boolean sendDeliveryStaffWelcomeEmail(String toEmail, String fullName, String tempPassword)
+            throws SQLException {
+        if (toEmail == null || toEmail.trim().isEmpty()) {
+            throw new IllegalArgumentException("Email không được để trống.");
+        }
+        if (fullName == null || fullName.trim().isEmpty()) {
+            throw new IllegalArgumentException("Họ tên không được để trống.");
+        }
+        if (tempPassword == null || tempPassword.trim().isEmpty()) {
+            throw new IllegalArgumentException("Mật khẩu tạm không được để trống.");
+        }
+        String subject = "[" + AppConfig.APP_NAME + "] Thông tin tài khoản Đối tác Giao hàng";
+        String html = templateService.buildDeliveryStaffWelcomeEmail(fullName, toEmail, tempPassword);
+        return sendHtml(toEmail, subject, html);
+    }
+
     // ── Core transport ────────────────────────────────────────────────────
 
     /**

@@ -357,6 +357,36 @@ public class EmailTemplateService {
                 footerHtml);
     }
 
+    /**
+     * Template email chào mừng Delivery Staff khi được Admin tạo tài khoản.
+     */
+    public String buildDeliveryStaffWelcomeEmail(String fullName, String email, String tempPassword) {
+        String mainHtml = "<div style='background:#f0f8f3;border:1px solid #c8e2d0;border-radius:14px;"
+                + "padding:16px 20px;margin:16px 0;'>"
+                + "<p style='margin:0 0 8px;font-size:13px;color:#607166;font-weight:700;'>Thông tin đăng nhập của bạn:</p>"
+                + "<table role='presentation' style='width:100%; border-collapse:collapse;'>"
+                + "<tr><td style='padding:4px 0; color:#6b7280; width:100px;'>Email:</td>"
+                + "<td style='padding:4px 0; font-weight:700; color:#111827;'>" + escapeHtml(email) + "</td></tr>"
+                + "<tr><td style='padding:4px 0; color:#6b7280;'>Mật khẩu:</td>"
+                + "<td style='padding:4px 0; font-weight:700; color:#14532d; font-family:monospace; font-size:16px;'>" + escapeHtml(tempPassword) + "</td></tr>"
+                + "</table>"
+                + "</div>"
+                + "<p style='font-size:13px;color:#1f2937;margin:12px 0;'>"
+                + "Vui lòng đăng nhập và truy cập trang Hồ sơ để đổi mật khẩu. Đừng chia sẻ thông tin đăng nhập này cho bất kỳ ai.</p>";
+
+        String footerHtml = "Chào mừng bạn gia nhập đội ngũ đối tác giao hàng của chúng tôi."
+                + "<br><br>Trân trọng,<br><strong>Đội ngũ " + escapeHtml(AppConfig.APP_NAME) + "</strong>";
+
+        return buildBrandedEmail(
+                "Tài khoản Đối tác Giao hàng",
+                "<p style='margin:0 0 10px 0;'>Xin chào <strong>" + escapeHtml(fullName) + "</strong>,</p>"
+                + "<p style='margin:0;'>Tài khoản đối tác giao hàng của bạn đã được quản trị viên tạo thành công trên hệ thống <strong>" + escapeHtml(AppConfig.APP_NAME) + "</strong>.</p>",
+                mainHtml,
+                "Đăng nhập ngay",
+                AppConfig.APP_BASE_URL + "/auth/login",
+                footerHtml);
+    }
+
     // ── Core layout builder (dùng nội bộ) ─────────────────────────────────
 
     /**

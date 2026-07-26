@@ -69,48 +69,58 @@ public class InventoryServlet extends HttpServlet {
             Map<Integer, List<InventoryLog>> batchesByVariant = new HashMap<>();
             if (activeBatches != null) {
                 for (InventoryLog batch : activeBatches) {
-                    batchesByVariant.computeIfAbsent(batch.getVariantId(), k -> new ArrayList<>()).add(batch);
+                    if (batch.getRemainingQuantity() > 0) {
+                        batchesByVariant.computeIfAbsent(batch.getVariantId(), k -> new ArrayList<>()).add(batch);
+                    }
                 }
             }
 
-            // Distribute stock quantity using FIFO logic
+            StringBuilder batchesJsonSb = new StringBuilder("{\n");
+            boolean firstVariant = true;
             for (Map<String, Object> vMap : variantsWithProduct) {
                 int variantId = (Integer) vMap.get("variantId");
                 int stockQuantity = (Integer) vMap.get("stockQuantity");
-                
+                Integer shelfLifeDays = (Integer) vMap.get("shelfLifeDays");
+
                 List<InventoryLog> vBatches = batchesByVariant.get(variantId);
                 List<InventoryLog> filteredBatches = new ArrayList<>();
-                
-                if (vBatches != null) {
-                    // Sort batches by FIFO order: expiresAt ASC (nulls last) then changedAt ASC
-                    vBatches.sort((b1, b2) -> {
-                        LocalDate d1 = b1.getExpiresAt();
-                        LocalDate d2 = b2.getExpiresAt();
-                        if (d1 == null && d2 == null) {
-                            return b1.getChangedAt().compareTo(b2.getChangedAt());
-                        }
-                        if (d1 == null) return 1;
-                        if (d2 == null) return -1;
-                        int comp = d1.compareTo(d2);
-                        if (comp != 0) return comp;
-                        return b1.getChangedAt().compareTo(b2.getChangedAt());
-                    });
-                    
-                    int tempStock = stockQuantity;
-                    for (InventoryLog batch : vBatches) {
-                        int delta = batch.getQuantityDelta();
-                        int remaining = 0;
-                        if (tempStock > 0) {
-                            remaining = Math.min(delta, tempStock);
-                            tempStock -= remaining;
-                        }
-                        batch.setRemainingQuantity(remaining);
-                        // Add to filtered batches to show in view
-                        filteredBatches.add(batch);
+                if (vBatches != null && !vBatches.isEmpty()) {
+                    filteredBatches.addAll(vBatches);
+                } else if (stockQuantity > 0) {
+                    // Tự động khởi tạo lô ảo từ tồn kho hiện tại của variant nếu chưa có log nhập kho
+                    InventoryLog fallbackBatch = new InventoryLog();
+                    fallbackBatch.setLogId(0);
+                    fallbackBatch.setVariantId(variantId);
+                    fallbackBatch.setRemainingQuantity(stockQuantity);
+                    if (shelfLifeDays != null && shelfLifeDays > 0) {
+                        fallbackBatch.setExpiresAt(LocalDate.now().plusDays(shelfLifeDays));
                     }
+                    fallbackBatch.setNote("Lô kho hiện tại");
+                    filteredBatches.add(fallbackBatch);
                 }
                 vMap.put("batches", filteredBatches);
+
+                if (!firstVariant) batchesJsonSb.append(",\n");
+                firstVariant = false;
+                batchesJsonSb.append('"').append(variantId).append("\": [");
+                boolean firstBatch = true;
+                for (InventoryLog batch : filteredBatches) {
+                    if (!firstBatch) batchesJsonSb.append(',');
+                    firstBatch = false;
+                    String hsd = batch.getFormattedExpiresAt();
+                    if (hsd == null || hsd.isEmpty()) hsd = "Kh\u00f4ng c\u00f3 HSD";
+                    hsd = hsd.replace("\\", "\\\\").replace("\"", "\\\"");
+
+                    batchesJsonSb.append('{');
+                    batchesJsonSb.append("\"logId\":").append(batch.getLogId()).append(',');
+                    batchesJsonSb.append("\"remainingQuantity\":").append(batch.getRemainingQuantity()).append(',');
+                    batchesJsonSb.append("\"expiresAt\":\"").append(hsd).append('"');
+                    batchesJsonSb.append('}');
+                }
+                batchesJsonSb.append(']');
             }
+            batchesJsonSb.append("\n}");
+            req.setAttribute("batchesJson", batchesJsonSb.toString());
 
         } catch (SQLException e) {
             LoggerUtil.error(log, "Không thể tải danh sách sản phẩm hoặc lịch sử nhập kho", e);
@@ -163,6 +173,7 @@ public class InventoryServlet extends HttpServlet {
         String note = req.getParameter("note");
         String actionType = req.getParameter("actionType");
         String expiresAtStr = req.getParameter("expiresAt");
+        String batchIdStr = req.getParameter("batchId");
         if (actionType == null || actionType.trim().isEmpty()) {
             actionType = "RESTOCK";
         }
@@ -243,7 +254,15 @@ public class InventoryServlet extends HttpServlet {
                     resp.sendRedirect(req.getContextPath() + "/shop/inventory");
                     return;
                 }
-                inventoryService.manualAdjust(variantId, -quantity, note, currentUser.getUserId());
+                int batchId = 0;
+                if (batchIdStr != null && !batchIdStr.trim().isEmpty()) {
+                    try {
+                        batchId = Integer.parseInt(batchIdStr);
+                    } catch (NumberFormatException e) {
+                        // ignore
+                    }
+                }
+                inventoryService.manualAdjust(variantId, -quantity, note, currentUser.getUserId(), batchId);
                 SessionUtil.flashSuccess(session, "Cập nhật giảm tồn kho thành công!");
             } else {
                 inventoryService.restockWithExpiry(variantId, quantity, note, changedAt, expiresAt,

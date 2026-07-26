@@ -45,6 +45,9 @@
             <form action="" method="GET" class="px-6 py-4 border-b border-border bg-slate-50/50 flex flex-wrap gap-4 items-center justify-between">
                 <div class="flex items-center gap-2">
                     <h3 class="font-bold text-txt text-sm"><i class="fa-solid fa-user-gear text-primary mr-1"></i> Danh Sách Tài Khoản</h3>
+                    <button type="button" onclick="openCreateDeliveryModal()" class="ml-4 bg-primary hover:bg-primary-dk text-white font-bold px-3 py-1.5 rounded-xl text-xs shadow active:scale-95 transition-all">
+                        <i class="fa-solid fa-plus mr-1"></i> Tạo Tài Xế
+                    </button>
                 </div>
                 
                 <div class="flex flex-wrap items-center gap-3">
@@ -204,6 +207,45 @@
     </main>
 </div>
 
+<!-- Create Delivery Staff Modal -->
+<div id="createDeliveryModal" class="fixed inset-0 z-[100] hidden items-center justify-center">
+    <div class="absolute inset-0 bg-black/40 backdrop-blur-sm" onclick="closeCreateDeliveryModal()"></div>
+    <div class="relative bg-white rounded-2xl shadow-xl w-full max-w-md mx-4 overflow-hidden animate-fade-in-up">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-border bg-slate-50">
+            <h3 class="font-bold text-lg text-primary-dark">Tạo Tài Khoản Tài Xế</h3>
+            <button type="button" onclick="closeCreateDeliveryModal()" class="text-txt-3 hover:text-red-500 transition-colors">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+        </div>
+        <form id="createDeliveryForm" class="p-6" onsubmit="submitCreateDelivery(event)">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-txt-2 mb-1">Họ và Tên <span class="text-red-500">*</span></label>
+                    <input type="text" name="fullName" required class="w-full rounded-xl border border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none px-4 py-2.5 text-sm transition-all" placeholder="Nhập họ và tên tài xế">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-txt-2 mb-1">Email <span class="text-red-500">*</span></label>
+                    <input type="email" name="email" required class="w-full rounded-xl border border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none px-4 py-2.5 text-sm transition-all" placeholder="example@gmail.com">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-txt-2 mb-1">Số điện thoại <span class="text-red-500">*</span></label>
+                    <input type="text" name="phone" required pattern="[0-9]{10,11}" class="w-full rounded-xl border border-slate-300 focus:border-primary focus:ring-2 focus:ring-primary/15 outline-none px-4 py-2.5 text-sm transition-all" placeholder="Nhập số điện thoại">
+                </div>
+                <div class="bg-indigo-50 border border-indigo-100 rounded-xl p-3 text-xs text-indigo-700">
+                    <i class="fa-solid fa-circle-info mr-1"></i>
+                    Mật khẩu sẽ được tạo ngẫu nhiên và gửi thẳng tới Email của tài xế.
+                </div>
+            </div>
+            <div class="mt-6 flex justify-end gap-3">
+                <button type="button" onclick="closeCreateDeliveryModal()" class="px-4 py-2 rounded-xl text-sm font-bold text-txt-2 bg-slate-100 hover:bg-slate-200 transition-colors">Hủy</button>
+                <button type="submit" id="btnSubmitCreateDelivery" class="px-4 py-2 rounded-xl text-sm font-bold text-white bg-primary hover:bg-primary-dk shadow transition-colors flex items-center">
+                    <i class="fa-solid fa-check mr-2"></i> Xác nhận tạo
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
 <script>
     const Toast = Swal.mixin({
         toast: true,
@@ -212,6 +254,63 @@
         timer: 3000,
         timerProgressBar: true
     });
+
+    function openCreateDeliveryModal() {
+        document.getElementById('createDeliveryModal').classList.remove('hidden');
+        document.getElementById('createDeliveryModal').classList.add('flex');
+    }
+    
+    function closeCreateDeliveryModal() {
+        document.getElementById('createDeliveryModal').classList.add('hidden');
+        document.getElementById('createDeliveryModal').classList.remove('flex');
+        document.getElementById('createDeliveryForm').reset();
+    }
+
+    function submitCreateDelivery(e) {
+        e.preventDefault();
+        const form = document.getElementById('createDeliveryForm');
+        const btn = document.getElementById('btnSubmitCreateDelivery');
+        const formData = new FormData(form);
+        const CSRF = document.getElementById('js-csrf').value;
+        formData.append('_csrf', CSRF);
+
+        btn.disabled = true;
+        const originalHtml = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-2"></i> Đang xử lý...';
+
+        fetch('${pageContext.request.contextPath}/admin/users/create-delivery', {
+            method: 'POST',
+            body: new URLSearchParams(formData),
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-Token': CSRF
+            }
+        })
+        .then(handleJSONResponse)
+        .then(data => {
+            if (data.success) {
+                closeCreateDeliveryModal();
+                Swal.fire({
+                    title: 'Thành công!',
+                    text: data.data || data.message || 'Đã tạo tài khoản tài xế!',
+                    icon: 'success'
+                }).then(() => {
+                    window.location.reload();
+                });
+            } else {
+                Toast.fire({ icon: 'error', title: data.error || data.message || 'Có lỗi xảy ra' });
+                btn.disabled = false;
+                btn.innerHTML = originalHtml;
+            }
+        })
+        .catch(err => {
+            console.error(err);
+            Toast.fire({ icon: 'error', title: err.message || 'Lỗi kết nối mạng' });
+            btn.disabled = false;
+            btn.innerHTML = originalHtml;
+        });
+    }
 
     function handleJSONResponse(response) {
         const contentType = response.headers.get("content-type");

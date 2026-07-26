@@ -166,9 +166,14 @@ public class DeliveryDAO extends BaseDAO {
     }
 
     public boolean claimDelivery(int deliveryId, int staffId) throws SQLException {
-        String sql = "UPDATE deliveries SET staff_id = ?, updated_at = GETDATE() WHERE delivery_id = ? AND staff_id IS NULL";
-        try (Connection conn = getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+        try (Connection conn = getConnection()) {
+            return claimDelivery(conn, deliveryId, staffId);
+        }
+    }
+
+    public boolean claimDelivery(Connection conn, int deliveryId, int staffId) throws SQLException {
+        String sql = "UPDATE deliveries SET staff_id = ?, updated_at = GETDATE() WHERE delivery_id = ? AND staff_id IS NULL AND status = 'ASSIGNED'";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
             ps.setInt(1, staffId);
             ps.setInt(2, deliveryId);
             return ps.executeUpdate() > 0;

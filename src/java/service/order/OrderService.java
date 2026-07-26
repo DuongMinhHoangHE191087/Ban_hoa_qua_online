@@ -121,7 +121,7 @@ public class OrderService {
         }
         // ADMIN and other privileged roles may cancel any order without ownership restriction
 
-        cancelOrderAndReleaseStock(order, cancelledBy, reason, false);
+        cancelOrderAndRestoreStock(order, cancelledBy, reason, false);
     }
 
     public PagedResultDTO shopOrders(int ownerId, String status, int page) throws SQLException {
@@ -343,7 +343,7 @@ public class OrderService {
     /**
      * INV-01 — System-initiated cancel that bypasses ownership checks.
      * Only used by trusted background jobs (AutoCancelUnpaidListener).
-     * Marks the order CANCELLED and releases reserved stock through the same path as manual cancel.
+     * Marks the order CANCELLED and restores reserved stock through the same path as manual cancel.
      */
     public boolean cancelOrderBySystem(int orderId, String reason) throws SQLException {
         Order order = getOrderDetail(orderId);
@@ -354,10 +354,10 @@ public class OrderService {
         if (!isSystemCancelableOrder(order)) {
             return false;
         }
-        return cancelOrderAndReleaseStock(order, 1, reason, true);
+        return cancelOrderAndRestoreStock(order, 1, reason, true);
     }
 
-    private boolean cancelOrderAndReleaseStock(Order currentOrder, int cancelledBy, String reason, boolean skipMissingOrTerminal)
+    private boolean cancelOrderAndRestoreStock(Order currentOrder, int cancelledBy, String reason, boolean skipMissingOrTerminal)
             throws SQLException {
         if (currentOrder == null) {
             if (skipMissingOrTerminal) {
@@ -383,7 +383,7 @@ public class OrderService {
                 List<OrderItem> items = orderDAO.findItemsByOrderId(conn, orderId);
                 for (OrderItem item : items) {
                     if (item.getVariantId() != null) {
-                        inventoryService.release(conn, item.getVariantId(), item.getQuantity(), orderId, cancelledBy);
+                        inventoryService.restore(conn, item.getVariantId(), item.getQuantity(), orderId, cancelledBy);
                     }
                 }
                 if (AppConfig.ORDER_PENDING_PAYMENT.equals(currentOrder.getStatus())) {

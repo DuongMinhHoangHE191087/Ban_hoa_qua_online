@@ -288,10 +288,21 @@ BEGIN
         note NVARCHAR(300) NULL,
         expires_at DATE NULL,
         is_expired BIT NOT NULL CONSTRAINT DF_inventory_logs_is_expired DEFAULT 0,
+        remaining_quantity INT NULL,
         changed_at DATETIME NOT NULL CONSTRAINT DF_inventory_logs_changed_at DEFAULT GETDATE(),
         CONSTRAINT FK_inventory_logs_variants FOREIGN KEY (variant_id) REFERENCES dbo.product_variants(variant_id),
         CONSTRAINT FK_inventory_logs_users FOREIGN KEY (changed_by) REFERENCES dbo.users(user_id)
     );
+END
+GO
+
+-- Migration guard for existing databases
+IF OBJECT_ID(N'dbo.inventory_logs', N'U') IS NOT NULL
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM sys.columns WHERE object_id = OBJECT_ID(N'dbo.inventory_logs') AND name = N'remaining_quantity')
+    BEGIN
+        ALTER TABLE dbo.inventory_logs ADD remaining_quantity INT NULL;
+    END
 END
 GO
 
@@ -545,7 +556,8 @@ BEGIN
         packaging_price_snapshot  DECIMAL(12,2) NOT NULL   -- Giá đóng gói tại thời điểm đặt hàng
                                   CONSTRAINT DF_order_items_pkg_price_snapshot DEFAULT 0,
         CONSTRAINT FK_order_items_orders   FOREIGN KEY (order_id)   REFERENCES dbo.orders(order_id) ON DELETE CASCADE,
-        CONSTRAINT FK_order_items_variants FOREIGN KEY (variant_id) REFERENCES dbo.product_variants(variant_id) ON DELETE SET NULL
+        CONSTRAINT FK_order_items_variants FOREIGN KEY (variant_id) REFERENCES dbo.product_variants(variant_id) ON DELETE SET NULL,
+        CONSTRAINT UQ_order_items_order_item_order UNIQUE (order_item_id, order_id)
     );
     PRINT 'Created order_items table with packaging snapshot columns.';
 END
@@ -640,11 +652,34 @@ BEGIN
         created_at DATETIME NOT NULL CONSTRAINT DF_return_requests_created_at DEFAULT GETDATE(),
         updated_at DATETIME NOT NULL CONSTRAINT DF_return_requests_updated_at DEFAULT GETDATE(),
         CONSTRAINT FK_return_requests_orders FOREIGN KEY (order_id) REFERENCES dbo.orders(order_id),
-        CONSTRAINT FK_return_requests_order_items FOREIGN KEY (order_item_id) REFERENCES dbo.order_items(order_item_id),
+        CONSTRAINT FK_return_requests_order_items FOREIGN KEY (order_item_id, order_id) REFERENCES dbo.order_items(order_item_id, order_id),
         CONSTRAINT FK_return_requests_customers FOREIGN KEY (customer_id) REFERENCES dbo.users(user_id),
         CONSTRAINT FK_return_requests_variants FOREIGN KEY (replacement_variant_id) REFERENCES dbo.product_variants(variant_id),
         CONSTRAINT FK_return_requests_decided_by FOREIGN KEY (decided_by) REFERENCES dbo.users(user_id)
     );
+END
+GO
+
+-- Keep existing databases aligned with the composite relationship. NULL
+-- order_item_id means the request targets the whole order.
+IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'UQ_order_items_order_item_order')
+BEGIN
+    ALTER TABLE dbo.order_items
+        ADD CONSTRAINT UQ_order_items_order_item_order UNIQUE (order_item_id, order_id);
+END
+GO
+
+IF EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_return_requests_order_items'
+           AND parent_object_id = OBJECT_ID(N'dbo.return_requests'))
+    ALTER TABLE dbo.return_requests DROP CONSTRAINT FK_return_requests_order_items;
+GO
+
+IF NOT EXISTS (SELECT 1 FROM sys.foreign_keys WHERE name = N'FK_return_requests_order_items'
+               AND parent_object_id = OBJECT_ID(N'dbo.return_requests'))
+BEGIN
+    ALTER TABLE dbo.return_requests ADD CONSTRAINT FK_return_requests_order_items
+        FOREIGN KEY (order_item_id, order_id)
+        REFERENCES dbo.order_items(order_item_id, order_id);
 END
 GO
 
@@ -1718,23 +1753,24 @@ BEGIN TRY
     SET IDENTITY_INSERT dbo.product_variants OFF;
 
     SET IDENTITY_INSERT dbo.inventory_logs ON;
-    INSERT INTO dbo.inventory_logs (log_id, variant_id, changed_by, change_type, quantity_delta, quantity_after, note, changed_at)
+    INSERT INTO dbo.inventory_logs (log_id, variant_id, changed_by, change_type, quantity_delta, quantity_after, remaining_quantity, note, expires_at, is_expired, changed_at)
     VALUES
-        (1, 1, 3, N'MANUAL_ADJUST', 150, 150, N'Nhập kho ban đầu', '2026-05-12T08:00:00'),
-        (2, 3, 3, N'MANUAL_ADJUST', 120, 120, N'Nhập kho đầu mùa bưởi', '2026-05-15T09:05:00'),
-        (3, 8, 4, N'MANUAL_ADJUST', 75, 75, N'Nhập lô dâu tây Mỹ kiểm dịch', '2026-05-16T08:20:00'),
-        (4, 12, 7, N'MANUAL_ADJUST', 85, 85, N'Nhập container Cherry Chile', '2026-05-15T10:00:00'),
-        (5, 19, 7, N'MANUAL_ADJUST', 35, 35, N'Đóng hộp quà tết', '2026-05-14T18:00:00'),
-        (6, 24, 7, N'MANUAL_ADJUST', 120, 120, N'Nhập kho táo Envy Mỹ', '2026-05-18T09:00:00'),
-        (7, 26, 7, N'MANUAL_ADJUST', 90, 90, N'Nhập kho Kiwi Vàng', '2026-05-19T09:00:00'),
+        (1, 1, 3, N'MANUAL_ADJUST', 150, 150, 150, N'Nhập kho ban đầu', DATEADD(day, 15, GETDATE()), 0, '2026-05-12T08:00:00'),
+        (2, 3, 3, N'MANUAL_ADJUST', 120, 120, 120, N'Nhập kho đầu mùa bưởi', DATEADD(day, 15, GETDATE()), 0, '2026-05-15T09:05:00'),
+        (3, 8, 4, N'MANUAL_ADJUST', 75, 75, 75, N'Nhập lô dâu tây Mỹ kiểm dịch', DATEADD(day, 15, GETDATE()), 0, '2026-05-16T08:20:00'),
+        (4, 12, 7, N'MANUAL_ADJUST', 85, 85, 85, N'Nhập container Cherry Chile', DATEADD(day, 15, GETDATE()), 0, '2026-05-15T10:00:00'),
+        (5, 19, 7, N'MANUAL_ADJUST', 35, 35, 35, N'Đóng hộp quà tết', DATEADD(day, 15, GETDATE()), 0, '2026-05-14T18:00:00'),
+        (6, 24, 7, N'MANUAL_ADJUST', 120, 120, 120, N'Nhập kho táo Envy Mỹ', DATEADD(day, 15, GETDATE()), 0, '2026-05-18T09:00:00'),
+        (7, 26, 7, N'MANUAL_ADJUST', 90, 90, 90, N'Nhập kho Kiwi Vàng', DATEADD(day, 15, GETDATE()), 0, '2026-05-19T09:00:00'),
 
-        (8, 28, 3, N'MANUAL_ADJUST', 90, 90, N'Nhập kho Cam Navel', GETDATE()),
-        (9, 30, 3, N'MANUAL_ADJUST', 300, 300, N'Nhập kho Chanh Long An', GETDATE()),
-        (10, 33, 3, N'MANUAL_ADJUST', 85, 85, N'Nhập kho sầu riêng Ri6 quả', GETDATE()),
-        (11, 35, 4, N'MANUAL_ADJUST', 120, 120, N'Nhập kho Măng Cụt', GETDATE()),
-        (12, 37, 4, N'MANUAL_ADJUST', 400, 400, N'Nhập kho Vải Thiều Bắc Giang', GETDATE()),
-        (13, 54, 7, N'MANUAL_ADJUST', 30, 30, N'Nhập kho Dâu Bạch Tuyết Nhật', GETDATE()),
-        (14, 58, 7, N'MANUAL_ADJUST', 110, 110, N'Nhập kho Nho sapphire ngón tay', GETDATE());
+        (8, 28, 3, N'MANUAL_ADJUST', 90, 90, 90, N'Nhập kho Cam Navel', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (9, 30, 3, N'MANUAL_ADJUST', 300, 300, 300, N'Nhập kho Chanh Long An', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (10, 33, 3, N'MANUAL_ADJUST', 85, 85, 85, N'Nhập kho sầu riêng Ri6 quả', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (11, 35, 4, N'MANUAL_ADJUST', 120, 120, 120, N'Nhập kho Măng Cụt', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (12, 37, 4, N'MANUAL_ADJUST', 400, 400, 400, N'Nhập kho Vải Thiều Bắc Giang', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (13, 54, 7, N'MANUAL_ADJUST', 30, 30, 30, N'Nhập kho Dâu Bạch Tuyết Nhật', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (14, 58, 7, N'MANUAL_ADJUST', 110, 110, 110, N'Nhập kho Nho sapphire ngón tay', DATEADD(day, 15, GETDATE()), 0, GETDATE()),
+        (15, 32, 3, N'MANUAL_ADJUST', 110, 110, 110, N'Nhập kho Bưởi Năm Roi', DATEADD(day, 15, GETDATE()), 0, GETDATE());
     SET IDENTITY_INSERT dbo.inventory_logs OFF;
 
     SET IDENTITY_INSERT dbo.promotions ON;
@@ -2091,8 +2127,6 @@ UPDATE dbo.products SET harvest_date = CAST(DATEADD(day, -45, GETDATE()) AS DATE
 UPDATE dbo.products SET harvest_date = CAST(DATEADD(day, -10, GETDATE()) AS DATE), shelf_life_days = 6, status = 'ACTIVE' WHERE product_id = 4;
 UPDATE dbo.products SET harvest_date = CAST(DATEADD(day, -50, GETDATE()) AS DATE), shelf_life_days = 30, status = 'ACTIVE' WHERE product_id = 7;
 UPDATE dbo.products SET harvest_date = CAST(DATEADD(day, -15, GETDATE()) AS DATE), shelf_life_days = 6, status = 'ACTIVE' WHERE product_id = 9;
-UPDATE dbo.products SET harvest_date = CAST(DATEADD(day, -20, GETDATE()) AS DATE), shelf_life_days = 6, status = 'ACTIVE' WHERE product_id = 13;
-UPDATE dbo.products SET harvest_date = CAST(DATEADD(day, -10, GETDATE()) AS DATE), shelf_life_days = 6, status = 'ACTIVE' WHERE product_id = 15;
 
 -- Loại C: Các sản phẩm khác (đặt hạn sử dụng = 5 ngày, luôn giữ ACTIVE)
 UPDATE dbo.products SET harvest_date = CAST(GETDATE() AS DATE), shelf_life_days = 5, status = 'ACTIVE' WHERE product_id = 5;
@@ -2244,6 +2278,7 @@ BEGIN TRY
         change_type,
         quantity_delta,
         quantity_after,
+        remaining_quantity,
         note,
         expires_at,
         is_expired,
@@ -2256,26 +2291,27 @@ BEGIN TRY
         src.change_type,
         src.quantity_delta,
         src.quantity_after,
+        src.remaining_quantity,
         src.note,
         src.expires_at,
         src.is_expired,
         src.changed_at
     FROM (VALUES
-        (5001, 901, 3, N'MANUAL_ADJUST', 140, 140, N'Nhập kho lô Tết cho kênh online', CAST(DATEADD(day, 12, GETDATE()) AS date), 0, DATEADD(hour, -12, GETDATE())),
-        (5002, 901, 5, N'ORDER_RESERVE', -8, 132, N'Giữ hàng cho 8 đơn flash sale', CAST(DATEADD(day, 12, GETDATE()) AS date), 0, DATEADD(hour, -11, GETDATE())),
-        (5003, 901, 5, N'ORDER_CONFIRM', -8, 124, N'Xác nhận xuất kho cho 8 đơn', CAST(DATEADD(day, 12, GETDATE()) AS date), 0, DATEADD(hour, -10, GETDATE())),
-        (5004, 902, 3, N'MANUAL_ADJUST', 70, 70, N'Nhập bổ sung combo 2kg', CAST(DATEADD(day, 10, GETDATE()) AS date), 0, DATEADD(hour, -9, GETDATE())),
-        (5005, 902, 4, N'ORDER_RESERVE', -10, 60, N'Dự trữ 10 combo cho chiến dịch', CAST(DATEADD(day, 10, GETDATE()) AS date), 0, DATEADD(hour, -8, GETDATE())),
-        (5006, 902, 4, N'ORDER_RELEASE', 10, 70, N'Khách hủy 10 combo, trả lại kho', CAST(DATEADD(day, 10, GETDATE()) AS date), 0, DATEADD(hour, -7, GETDATE())),
-        (5007, 904, 4, N'MANUAL_ADJUST', 28, 28, N'Nhập hàng lạnh premium', CAST(DATEADD(day, 5, GETDATE()) AS date), 0, DATEADD(hour, -6, GETDATE())),
-        (5008, 904, 4, N'EXPIRED', -4, 24, N'Loại 4 hộp hết hạn lưu kho', CAST(DATEADD(day, -2, GETDATE()) AS date), 1, DATEADD(hour, -5, GETDATE())),
-        (5009, 906, 7, N'MANUAL_ADJUST', 110, 110, N'Nhập kho nho sapphire gift', CAST(DATEADD(day, 15, GETDATE()) AS date), 0, DATEADD(hour, -4, GETDATE())),
-        (5010, 906, 7, N'SPOILED', -3, 107, N'Loại bỏ 3 hộp bị dập mép', CAST(DATEADD(day, 15, GETDATE()) AS date), 0, DATEADD(hour, -3, GETDATE())),
-        (5011, 907, 3, N'MANUAL_ADJUST', 125, 125, N'Nhập kho táo Rockit hộp 6 quả', CAST(DATEADD(day, 8, GETDATE()) AS date), 0, DATEADD(hour, -2, GETDATE())),
-        (5012, 907, 5, N'ORDER_RESERVE', -15, 110, N'Dự trữ 15 hộp cho đặt trước', CAST(DATEADD(day, 8, GETDATE()) AS date), 0, DATEADD(hour, -1, GETDATE())),
-        (5013, 907, 5, N'ORDER_CONFIRM', -15, 95, N'Xuất kho đơn đặt trước đã xác nhận', CAST(DATEADD(day, 8, GETDATE()) AS date), 0, GETDATE()),
-        (5014, 908, 4, N'MANUAL_ADJUST', 90, 90, N'Nhập kho vải thiều Lục Ngạn', CAST(DATEADD(day, 6, GETDATE()) AS date), 0, GETDATE()),
-        (5015, 908, 4, N'RETURN', 2, 92, N'Nhận lại 2 túi từ đơn đổi trả', CAST(DATEADD(day, 6, GETDATE()) AS date), 0, DATEADD(minute, 10, GETDATE()))
+        (5001, 901, 3, N'MANUAL_ADJUST', 140, 140, 124, N'Nhập kho lô Tết cho kênh online', CAST(DATEADD(day, 12, GETDATE()) AS date), 0, DATEADD(hour, -12, GETDATE())),
+        (5002, 901, 5, N'ORDER_RESERVE', -8, 132, NULL, N'Giữ hàng cho 8 đơn flash sale', CAST(DATEADD(day, 12, GETDATE()) AS date), 0, DATEADD(hour, -11, GETDATE())),
+        (5003, 901, 5, N'ORDER_CONFIRM', -8, 124, NULL, N'Xác nhận xuất kho cho 8 đơn', CAST(DATEADD(day, 12, GETDATE()) AS date), 0, DATEADD(hour, -10, GETDATE())),
+        (5004, 902, 3, N'MANUAL_ADJUST', 70, 70, 70, N'Nhập bổ sung combo 2kg', CAST(DATEADD(day, 10, GETDATE()) AS date), 0, DATEADD(hour, -9, GETDATE())),
+        (5005, 902, 4, N'ORDER_RESERVE', -10, 60, NULL, N'Dự trữ 10 combo cho chiến dịch', CAST(DATEADD(day, 10, GETDATE()) AS date), 0, DATEADD(hour, -8, GETDATE())),
+        (5006, 902, 4, N'ORDER_RELEASE', 10, 70, NULL, N'Khách hủy 10 combo, trả lại kho', CAST(DATEADD(day, 10, GETDATE()) AS date), 0, DATEADD(hour, -7, GETDATE())),
+        (5007, 904, 4, N'MANUAL_ADJUST', 28, 28, 24, N'Nhập hàng lạnh premium', CAST(DATEADD(day, 5, GETDATE()) AS date), 0, DATEADD(hour, -6, GETDATE())),
+        (5008, 904, 4, N'EXPIRED', -4, 24, NULL, N'Loại 4 hộp hết hạn lưu kho', CAST(DATEADD(day, -2, GETDATE()) AS date), 1, DATEADD(hour, -5, GETDATE())),
+        (5009, 906, 7, N'MANUAL_ADJUST', 110, 110, 107, N'Nhập kho nho sapphire gift', CAST(DATEADD(day, 15, GETDATE()) AS date), 0, DATEADD(hour, -4, GETDATE())),
+        (5010, 906, 7, N'SPOILED', -3, 107, NULL, N'Loại bỏ 3 hộp bị dập mép', CAST(DATEADD(day, 15, GETDATE()) AS date), 0, DATEADD(hour, -3, GETDATE())),
+        (5011, 907, 3, N'MANUAL_ADJUST', 125, 125, 95, N'Nhập kho táo Rockit hộp 6 quả', CAST(DATEADD(day, 8, GETDATE()) AS date), 0, DATEADD(hour, -2, GETDATE())),
+        (5012, 907, 5, N'ORDER_RESERVE', -15, 110, NULL, N'Dự trữ 15 hộp cho đặt trước', CAST(DATEADD(day, 8, GETDATE()) AS date), 0, DATEADD(hour, -1, GETDATE())),
+        (5013, 907, 5, N'ORDER_CONFIRM', -15, 95, NULL, N'Xuất kho đơn đặt trước đã xác nhận', CAST(DATEADD(day, 8, GETDATE()) AS date), 0, GETDATE()),
+        (5014, 908, 4, N'MANUAL_ADJUST', 90, 90, 92, N'Nhập kho vải thiều Lục Ngạn', CAST(DATEADD(day, 6, GETDATE()) AS date), 0, GETDATE()),
+        (5015, 908, 4, N'RETURN', 2, 92, NULL, N'Nhận lại 2 túi từ đơn đổi trả', CAST(DATEADD(day, 6, GETDATE()) AS date), 0, DATEADD(minute, 10, GETDATE()))
     ) AS src (
         log_id,
         variant_id,
@@ -2283,6 +2319,7 @@ BEGIN TRY
         change_type,
         quantity_delta,
         quantity_after,
+        remaining_quantity,
         note,
         expires_at,
         is_expired,
@@ -2294,6 +2331,32 @@ BEGIN TRY
         WHERE il.log_id = src.log_id
     );
     SET IDENTITY_INSERT dbo.inventory_logs OFF;
+
+    -- Tự động khởi tạo remaining_quantity cho các lô chưa có dữ liệu tồn
+    UPDATE dbo.inventory_logs
+    SET remaining_quantity = quantity_delta
+    WHERE remaining_quantity IS NULL AND change_type = 'MANUAL_ADJUST' AND quantity_delta > 0;
+
+    -- Tự động tạo lô nhập kho ban đầu cho tất cả sản phẩm đang có tồn kho > 0 mà chưa có lô trong inventory_logs
+    INSERT INTO dbo.inventory_logs (variant_id, changed_by, change_type, quantity_delta, quantity_after, remaining_quantity, note, expires_at, is_expired, changed_at)
+    SELECT
+        pv.variant_id,
+        p.owner_id,
+        'MANUAL_ADJUST',
+        pv.stock_quantity,
+        pv.stock_quantity,
+        pv.stock_quantity,
+        N'Lô hàng khởi tạo hệ thống',
+        CAST(DATEADD(day, ISNULL(p.shelf_life_days, 15), GETDATE()) AS DATE),
+        0,
+        pv.created_at
+    FROM dbo.product_variants pv
+    JOIN dbo.products p ON pv.product_id = p.product_id
+    WHERE pv.stock_quantity > 0
+      AND NOT EXISTS (
+          SELECT 1 FROM dbo.inventory_logs il
+          WHERE il.variant_id = pv.variant_id AND il.change_type = 'MANUAL_ADJUST' AND il.quantity_delta > 0
+      );
 
     PRINT N'3/4 - Seeding promotions...';
     PRINT N'    benefit_target = PRODUCT / MERCHANDISE / SHIPPING / PAYMENT_METHOD';

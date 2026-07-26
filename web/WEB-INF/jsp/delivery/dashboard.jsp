@@ -346,13 +346,13 @@ async function apiCall(data) {
         const ct = res.headers.get("content-type") || '';
         if (!res.ok) {
             const errData = ct.includes("application/json") ? await res.json() : {};
-            throw new Error(errData.message || ('Lỗi hệ thống (Mã: ' + res.status + ')'));
+            throw new Error(errData.error || errData.message || ('Lỗi hệ thống (Mã: ' + res.status + ')'));
         }
         const result = await res.json();
         if (result.success) {
             location.reload();
         } else {
-            alert("Lỗi: " + result.message);
+            alert("Lỗi: " + (result.error || result.message));
         }
     } catch (e) {
         alert(e.message || "Lỗi mạng!");
